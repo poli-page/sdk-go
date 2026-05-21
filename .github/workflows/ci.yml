@@ -7,12 +7,24 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        go-version: ['1.22', '1.23', '1.24']
+        include:
+          - os: ubuntu-latest
+            go-version: '1.25'
+          - os: ubuntu-latest
+            go-version: '1.26'
+          - os: macos-latest
+            go-version: '1.26'
+          - os: windows-latest
+            go-version: '1.26'
     steps:
+      - name: Disable autocrlf
+        shell: bash
+        run: git config --global core.autocrlf false
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
@@ -20,6 +32,7 @@ jobs:
           go-version: ${{ matrix.go-version }}
 
       - name: Build
+        shell: bash
         run: |
           if [ -f go.mod ]; then
             go build ./...
@@ -28,6 +41,7 @@ jobs:
           fi
 
       - name: Vet
+        shell: bash
         run: |
           if [ -f go.mod ]; then
             go vet ./...
@@ -36,6 +50,7 @@ jobs:
           fi
 
       - name: Format check
+        shell: bash
         run: |
           if [ -f go.mod ]; then
             unformatted=$(gofmt -l .)
@@ -46,7 +61,19 @@ jobs:
             fi
           fi
 
+      - name: Lint
+        shell: bash
+        run: |
+          if [ -f .golangci.yml ] && [ -f go.mod ]; then
+            curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh \
+              | sh -s -- -b "$(go env GOPATH)/bin" v2.1.6
+            "$(go env GOPATH)/bin/golangci-lint" run ./...
+          else
+            echo "No .golangci.yml yet — skipping lint"
+          fi
+
       - name: Test
+        shell: bash
         run: |
           if [ -f go.mod ]; then
             go test -v -race ./...

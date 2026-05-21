@@ -1,0 +1,43 @@
+# golangci-lint v2 configuration. Mirrors sdk-go-plan.md §9.3.
+# Run locally: golangci-lint run ./...
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - bodyclose      # critical for HTTP SDK: every *http.Response.Body must be closed
+    - errcheck       # every error return inspected
+    - gocritic       # opinionated suggestions
+    - gosec          # security-flavored lints
+    - govet          # stdlib static analysis
+    - ineffassign    # detect unused assignments
+    - nilerr         # catch `return nil` after err check
+    - revive         # enforces exported-doc-comments (replaces deprecated golint)
+    - staticcheck    # bug detection; absorbs simple, stylecheck in v2
+    - unused         # dead-code detection
+  settings:
+    revive:
+      rules:
+        - name: exported
+          severity: warning
+          disabled: false
+        - name: package-comments
+          disabled: false
+  exclusions:
+    rules:
+      # Test files don't need exported-doc-comments enforcement.
+      - path: _test\.go
+        linters:
+          - revive
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/poli-page/sdk-go
