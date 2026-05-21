@@ -34,6 +34,9 @@ bin/
 *.test
 *.out
 
+# Demo artifacts (cmd/demo writes here)
+output/
+
 # Env
 .env
 .env.local

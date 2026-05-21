@@ -26,6 +26,15 @@ linters:
           disabled: false
         - name: package-comments
           disabled: false
+    gosec:
+      # G301/G304/G306 fit service code handling untrusted inputs, not the
+      # SDK's RenderToFile / cmd/demo, where the caller owns the path. Keep
+      # the rest (G404 jitter PRNG, G101 credentials) on; they catch real
+      # issues elsewhere.
+      excludes:
+        - G301 # directory permissions (caller-supplied path)
+        - G304 # file inclusion via variable
+        - G306 # WriteFile permissions (artifacts must be opener-friendly)
   exclusions:
     rules:
       # Test files don't need exported-doc-comments enforcement.
