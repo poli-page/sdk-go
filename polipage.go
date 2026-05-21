@@ -56,6 +56,10 @@ type Client struct {
 
 	// Render is the render namespace. See [Render] for available methods.
 	Render *Render
+
+	// Documents is the stored-documents namespace. See [Documents] for
+	// available methods.
+	Documents *Documents
 }
 
 // NewClient constructs a Poli Page SDK client. Options are applied in order;
@@ -88,6 +92,7 @@ func NewClient(opts ...option.RequestOption) *Client {
 	}
 	c := &Client{cfg: cfg, initErr: initErr}
 	c.Render = &Render{client: c}
+	c.Documents = &Documents{client: c}
 	return c
 }
 

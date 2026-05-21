@@ -102,6 +102,52 @@ type PreviewResult struct {
 // re-export here can both spell the type identically.
 type RetryEvent = clientconfig.RetryEvent
 
+// DocumentPreviewResult is the result of [Documents.Preview] — the
+// paginated HTML for an already-stored document and the page count the
+// engine emitted at render time.
+//
+// Note: the field is PageCount (singular) here, distinct from
+// [PreviewResult.TotalPages] returned by [Render.Preview]. The deployed
+// API uses different field shapes for the two endpoints.
+type DocumentPreviewResult struct {
+	HTML      string
+	PageCount int
+}
+
+// ThumbnailFormat is the image format for a generated thumbnail. PNG is
+// the default; JPEG accepts an additional Quality option.
+type ThumbnailFormat string
+
+// Canonical thumbnail formats.
+const (
+	ThumbnailFormatPNG  ThumbnailFormat = "png"
+	ThumbnailFormatJPEG ThumbnailFormat = "jpeg"
+)
+
+// ThumbnailOptions configures a thumbnail-generation request. Width is
+// required; other fields default per spec §6.3.
+type ThumbnailOptions struct {
+	// Width is the thumbnail width in pixels. Required.
+	Width int `json:"width"`
+	// Format selects PNG (default) or JPEG output.
+	Format ThumbnailFormat `json:"format,omitempty"`
+	// Quality is the JPEG quality 1-100. Only valid when Format is JPEG.
+	Quality int `json:"quality,omitempty"`
+	// Pages selects specific 1-based page numbers. Empty means all pages.
+	Pages []int `json:"pages,omitempty"`
+}
+
+// Thumbnail is a single page thumbnail returned by [Documents.Thumbnails].
+// Data is base64-encoded image bytes; the caller decodes via
+// encoding/base64.StdEncoding.DecodeString as needed.
+type Thumbnail struct {
+	Page        int    `json:"page"`
+	Width       int    `json:"width"`
+	Height      int    `json:"height"`
+	ContentType string `json:"contentType"`
+	Data        string `json:"data"`
+}
+
 // DocumentDescriptor is a stored document returned by [Render.Document]
 // and (in a future phase) Documents.Get. Top-level fields are
 // system-controlled; Metadata echoes caller-supplied data.
