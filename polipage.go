@@ -1,13 +1,30 @@
 // Package polipage is the official Go SDK for [Poli Page].
 //
-// The transport core (URL/header building, retry math, error parsing) and
-// the *Error type are exported as of Phase 1. The full *Client orchestration
-// + Render/Documents namespaces land in subsequent phases per sdk-go-plan.md.
+// Construct a client with [NewClient], then call methods on the [Render]
+// or Documents namespaces. The client is safe for concurrent use — share
+// one instance per process so the underlying *http.Client pools
+// connections automatically.
 //
 // [Poli Page]: https://poli.page
 package polipage
 
-import "time"
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"time"
+
+	"github.com/poli-page/sdk-go/internal/clientconfig"
+	"github.com/poli-page/sdk-go/internal/constants"
+	httpx "github.com/poli-page/sdk-go/internal/http"
+	"github.com/poli-page/sdk-go/internal/version"
+	"github.com/poli-page/sdk-go/option"
+)
 
 // User-facing default values for client construction. Internal SDK
 // values (header names, jitter bounds, path templates) live in
@@ -31,16 +48,275 @@ const (
 	DefaultTimeout = 60 * time.Second
 )
 
-// Client is the Poli Page SDK entry point.
-//
-// Construct one via [NewClient] and reuse it for the lifetime of the process —
-// the underlying *http.Client pools connections automatically.
-type Client struct{}
+// Client is the Poli Page SDK entry point. Construct one via [NewClient]
+// and reuse it for the lifetime of the process.
+type Client struct {
+	cfg     clientconfig.Config
+	initErr error
 
-// NewClient constructs a Poli Page SDK client.
+	// Render is the render namespace. See [Render] for available methods.
+	Render *Render
+}
+
+// NewClient constructs a Poli Page SDK client. Options are applied in order;
+// later options override earlier ones for the same field.
 //
-// Phase 1 stub: functional options (option.WithAPIKey, etc.), retry loop
-// orchestration, and the Render / Documents namespaces land in Phase 2+.
-func NewClient() *Client {
-	return &Client{}
+// Validation is deferred: NewClient never returns an error. If a required
+// option is missing (e.g. [option.WithAPIKey]), the first method call
+// returns an *Error with Code == ErrCodeInvalidOptions.
+//
+//	client := polipage.NewClient(
+//	    option.WithAPIKey(os.Getenv("POLI_PAGE_API_KEY")),
+//	)
+func NewClient(opts ...option.RequestOption) *Client {
+	cfg := clientconfig.Default()
+	var initErr error
+	for _, opt := range opts {
+		if err := opt(&cfg); err != nil {
+			initErr = err
+			break
+		}
+	}
+	if initErr == nil && cfg.APIKey == "" {
+		initErr = &Error{Code: ErrCodeInvalidOptions, Message: "option.WithAPIKey is required"}
+	}
+	if cfg.HTTPClient == nil {
+		cfg.HTTPClient = &http.Client{}
+	}
+	if cfg.Logger == nil {
+		cfg.Logger = slog.New(slog.DiscardHandler)
+	}
+	c := &Client{cfg: cfg, initErr: initErr}
+	c.Render = &Render{tr: c}
+	return c
+}
+
+// userAgent returns the User-Agent header value for this build.
+func (c *Client) userAgent() string {
+	return "poli-page-sdk-go/" + version.Version
+}
+
+// transport is the internal seam each namespace uses to issue HTTP
+// requests. *Client is the only production implementer.
+type transport interface {
+	post(ctx context.Context, path string, body any, idempotencyKey string) (*http.Response, error)
+	get(ctx context.Context, path string) (*http.Response, error)
+	delete(ctx context.Context, path string) error
+}
+
+func (c *Client) post(ctx context.Context, path string, body any, idempotencyKey string) (*http.Response, error) {
+	return c.do(ctx, http.MethodPost, path, body, idempotencyKey)
+}
+
+func (c *Client) get(ctx context.Context, path string) (*http.Response, error) {
+	return c.do(ctx, http.MethodGet, path, nil, "")
+}
+
+func (c *Client) delete(ctx context.Context, path string) error {
+	resp, err := c.do(ctx, http.MethodDelete, path, nil, "")
+	if err != nil {
+		return err
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
+	return nil
+}
+
+// do is the orchestrator: it runs the request with retries, hook firing,
+// per-attempt timeout, and full error mapping. Callers responsible for
+// closing resp.Body on success.
+func (c *Client) do(ctx context.Context, method, path string, body any, idempotencyKey string) (*http.Response, error) {
+	if c.initErr != nil {
+		c.fireOnError(c.initErr)
+		return nil, c.initErr
+	}
+	if err := ctx.Err(); err != nil {
+		mapped := mapContextError(err)
+		c.fireOnError(mapped)
+		return nil, mapped
+	}
+
+	var bodyBytes []byte
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			mapped := &Error{Code: ErrCodeInvalidOptions, Message: "failed to marshal request body: " + err.Error(), Cause: err}
+			c.fireOnError(mapped)
+			return nil, mapped
+		}
+		bodyBytes = b
+	}
+
+	var lastErr *Error
+	var nextRetryAfter time.Duration
+
+	for attempt := 0; attempt <= c.cfg.MaxRetries; attempt++ {
+		if attempt > 0 {
+			delay := httpx.ComputeBackoff(attempt, c.cfg.RetryDelay, nextRetryAfter)
+			c.fireOnRetry(clientconfig.RetryEvent{
+				Attempt: attempt + 1,
+				DelayMs: float64(delay) / float64(time.Millisecond),
+				Reason:  lastErr,
+			})
+			if err := sleepCtx(ctx, delay); err != nil {
+				c.fireOnError(err)
+				return nil, err
+			}
+		}
+
+		resp, retryAfter, retryable, err := c.sendOnce(ctx, method, path, bodyBytes, idempotencyKey, attempt+1)
+		if err == nil {
+			return resp, nil
+		}
+
+		lastErr = err
+		nextRetryAfter = retryAfter
+		if !retryable {
+			c.fireOnError(err)
+			return nil, err
+		}
+	}
+
+	c.fireOnError(lastErr)
+	return nil, lastErr
+}
+
+// sendOnce performs a single HTTP attempt. Returns (resp, 0, false, nil) on
+// 2xx; (nil, retryAfter, retryable, err) otherwise.
+//
+// When a per-attempt timeout context is created, ownership of cancel() is
+// transferred to the returned resp.Body via cancelOnClose — closing the
+// body cancels the context. This avoids the trap where deferring cancel()
+// inside sendOnce kills the body mid-read.
+func (c *Client) sendOnce(ctx context.Context, method, path string, bodyBytes []byte, idempotencyKey string, attempt int) (*http.Response, time.Duration, bool, *Error) {
+	attemptCtx := ctx
+	var cancel context.CancelFunc
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		attemptCtx, cancel = context.WithTimeout(ctx, c.cfg.Timeout)
+	}
+	cleanup := func() {
+		if cancel != nil {
+			cancel()
+		}
+	}
+
+	url := httpx.BuildURL(c.cfg.BaseURL, path)
+	var body io.Reader
+	if bodyBytes != nil {
+		body = bytes.NewReader(bodyBytes)
+	}
+	req, err := http.NewRequestWithContext(attemptCtx, method, url, body)
+	if err != nil {
+		cleanup()
+		return nil, 0, false, &Error{Code: ErrCodeInvalidOptions, Message: "failed to build request: " + err.Error(), Cause: err}
+	}
+	req.Header = httpx.BuildHeaders(method, c.cfg.APIKey, idempotencyKey, c.userAgent())
+
+	c.cfg.Logger.LogAttrs(ctx, slog.LevelDebug, "polipage: http attempt",
+		slog.String("method", method),
+		slog.String("url", url),
+		slog.Int("attempt", attempt),
+	)
+
+	resp, err := c.cfg.HTTPClient.Do(req)
+	if err != nil {
+		cleanup()
+		if ctx.Err() != nil {
+			return nil, 0, false, mapContextError(ctx.Err())
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			return nil, 0, true, &Error{Code: ErrCodeTimeout, Message: fmt.Sprintf("request timed out after %v", c.cfg.Timeout), Cause: err}
+		}
+		return nil, 0, true, &Error{Code: ErrCodeNetworkError, Message: err.Error(), Cause: err}
+	}
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		if cancel != nil {
+			// Transfer ownership of cancel to the body: the caller cancels
+			// the per-attempt context when they close the body.
+			resp.Body = &cancelOnClose{ReadCloser: resp.Body, cancel: cancel}
+		}
+		return resp, 0, false, nil
+	}
+
+	// non-2xx — parse body, classify, return *Error.
+	defer cleanup()
+	defer func() { _ = resp.Body.Close() }()
+	bodyOut, _ := io.ReadAll(resp.Body)
+	code, message := httpx.ParseErrorBody(bodyOut, resp.StatusCode)
+	requestID := resp.Header.Get(constants.HeaderRequestID)
+	retryable := resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests
+	var retryAfter time.Duration
+	if retryable {
+		if d, ok := httpx.ParseRetryAfter(resp.Header.Get(constants.HeaderRetryAfter)); ok {
+			retryAfter = d
+		}
+	}
+	return nil, retryAfter, retryable, &Error{
+		Code:       code,
+		StatusCode: resp.StatusCode,
+		Message:    message,
+		RequestID:  requestID,
+	}
+}
+
+// cancelOnClose wraps an http.Response.Body so that closing it also
+// cancels the per-attempt context. Solves the standard Go pitfall of
+// deferring cancel() in the request-building helper, which kills the body
+// before the caller can read it.
+type cancelOnClose struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (c *cancelOnClose) Close() error {
+	err := c.ReadCloser.Close()
+	c.cancel()
+	return err
+}
+
+// mapContextError turns a context error into an *Error with the right Code.
+func mapContextError(err error) *Error {
+	if errors.Is(err, context.Canceled) {
+		return &Error{Code: ErrCodeAborted, Message: "request was aborted", Cause: err}
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return &Error{Code: ErrCodeTimeout, Message: "request deadline exceeded", Cause: err}
+	}
+	return &Error{Code: ErrCodeNetworkError, Message: err.Error(), Cause: err}
+}
+
+// sleepCtx blocks for d, returning an *Error with Code == ErrCodeAborted (or
+// ErrCodeTimeout) if the context is canceled or expires before the sleep
+// completes.
+func sleepCtx(ctx context.Context, d time.Duration) *Error {
+	if d <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return mapContextError(ctx.Err())
+	}
+}
+
+// fireOnRetry invokes the OnRetry hook (if any) with panic recovery.
+func (c *Client) fireOnRetry(e clientconfig.RetryEvent) {
+	if c.cfg.OnRetry == nil {
+		return
+	}
+	defer func() { _ = recover() }()
+	c.cfg.OnRetry(e)
+}
+
+// fireOnError invokes the OnError hook (if any) with panic recovery.
+func (c *Client) fireOnError(err error) {
+	if c.cfg.OnError == nil {
+		return
+	}
+	defer func() { _ = recover() }()
+	c.cfg.OnError(err)
 }
