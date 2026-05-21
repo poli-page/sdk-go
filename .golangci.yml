@@ -35,6 +35,7 @@ linters:
         - G301 # directory permissions (caller-supplied path)
         - G304 # file inclusion via variable
         - G306 # WriteFile permissions (artifacts must be opener-friendly)
+        - G703 # path-traversal via taint analysis (false-positive on canonical SDK usage)
   exclusions:
     rules:
       # Test files don't need exported-doc-comments enforcement.
