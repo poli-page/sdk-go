@@ -87,7 +87,7 @@ func NewClient(opts ...option.RequestOption) *Client {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
 	c := &Client{cfg: cfg, initErr: initErr}
-	c.Render = &Render{tr: c}
+	c.Render = &Render{client: c}
 	return c
 }
 
@@ -97,12 +97,16 @@ func (c *Client) userAgent() string {
 }
 
 // transport is the internal seam each namespace uses to issue HTTP
-// requests. *Client is the only production implementer.
+// requests. *Client is the production implementer; the interface stays
+// around as a documented future mock-point per sdk-go-plan.md §3.2.
 type transport interface {
 	post(ctx context.Context, path string, body any, idempotencyKey string) (*http.Response, error)
 	get(ctx context.Context, path string) (*http.Response, error)
 	delete(ctx context.Context, path string) error
 }
+
+// Compile-time assertion that *Client satisfies the transport seam.
+var _ transport = (*Client)(nil)
 
 func (c *Client) post(ctx context.Context, path string, body any, idempotencyKey string) (*http.Response, error) {
 	return c.do(ctx, http.MethodPost, path, body, idempotencyKey)

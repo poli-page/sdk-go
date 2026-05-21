@@ -102,6 +102,51 @@ type PreviewResult struct {
 // re-export here can both spell the type identically.
 type RetryEvent = clientconfig.RetryEvent
 
+// DocumentDescriptor is a stored document returned by [Render.Document]
+// and (in a future phase) Documents.Get. Top-level fields are
+// system-controlled; Metadata echoes caller-supplied data.
+//
+// Nullable wire fields (ProjectID, ProjectSlug, TemplateID, TemplateSlug,
+// Version, APIKeyID, Orientation, Locale) are *string so the SDK can
+// distinguish JSON null from an empty string.
+type DocumentDescriptor struct {
+	DocumentID     string `json:"documentId"`
+	OrganizationID string `json:"organizationId"`
+
+	ProjectID    *string `json:"projectId"`
+	ProjectSlug  *string `json:"projectSlug"`
+	TemplateID   *string `json:"templateId"`
+	TemplateSlug *string `json:"templateSlug"`
+	Version      *string `json:"version"`
+	APIKeyID     *string `json:"apiKeyId"`
+
+	Environment Environment `json:"environment"`
+	Format      PageFormat  `json:"format"`
+
+	Orientation *string `json:"orientation"`
+	Locale      *string `json:"locale"`
+
+	PageCount int   `json:"pageCount"`
+	SizeBytes int64 `json:"sizeBytes"`
+
+	CreatedAt string `json:"createdAt"`
+	ExpiresAt string `json:"expiresAt"`
+
+	// Metadata is the caller-supplied metadata echoed by the server. Always
+	// non-nil after a successful decode — a server null is normalised to an
+	// empty map so callers can range without a nil check.
+	Metadata RenderMetadata `json:"metadata"`
+
+	// PresignedPDFURL has a ~15-minute TTL. Re-fetch via Documents.Get when
+	// expired.
+	PresignedPDFURL string `json:"presignedPdfUrl"`
+
+	// client is the parent SDK client used to fetch the presigned PDF URL.
+	// Set by the SDK after JSON-decode; nil for descriptors built outside
+	// of a Render.Document / Documents.Get call.
+	client *Client
+}
+
 // Opt returns a pointer to v. Use it to set optional pointer-typed fields
 // with literal values:
 //

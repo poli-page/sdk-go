@@ -1,6 +1,7 @@
 package polipage_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -376,6 +377,296 @@ func TestRender_Preview_largeResponseBodyDoesNotRaceAttemptTimeout(t *testing.T)
 	}
 	if len(res.HTML) != len(bigHTML) {
 		t.Errorf("HTML length = %d, want %d", len(res.HTML), len(bigHTML))
+	}
+}
+
+// twoHopServer mounts two routes on a single httptest.Server:
+//   - POST /v1/render returns a JSON DocumentDescriptor whose
+//     presignedPdfUrl points at GET /s3/<docID>.pdf on the same server.
+//   - GET /s3/* returns the supplied pdfBytes verbatim.
+//
+// onRender (optional) sees the parsed body of the POST so individual tests
+// can assert on the wire payload without re-implementing the handler.
+func twoHopServer(t *testing.T, pdfBytes []byte, onRender func(body []byte)) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	var serverURL string
+	mux.HandleFunc("/v1/render", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if onRender != nil {
+			onRender(body)
+		}
+		descriptor := map[string]any{
+			"documentId":      "doc_test_abc",
+			"organizationId":  "org_test_xyz",
+			"projectId":       "proj_001",
+			"projectSlug":     "billing",
+			"templateId":      "tmpl_001",
+			"templateSlug":    "invoice",
+			"version":         "1.0.0",
+			"environment":     "sandbox",
+			"apiKeyId":        "key_001",
+			"format":          "A4",
+			"orientation":     "portrait",
+			"locale":          "en-US",
+			"pageCount":       2,
+			"sizeBytes":       len(pdfBytes),
+			"createdAt":       "2026-05-21T10:00:00Z",
+			"metadata":        map[string]any{"source": "test"},
+			"presignedPdfUrl": serverURL + "/s3/doc_test_abc.pdf",
+			"expiresAt":       "2026-05-21T10:15:00Z",
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(descriptor)
+	})
+	mux.HandleFunc("/s3/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/pdf")
+		_, _ = w.Write(pdfBytes)
+	})
+	server := httptest.NewServer(mux)
+	serverURL = server.URL
+	t.Cleanup(server.Close)
+	return server
+}
+
+func TestRender_Document_happyPath(t *testing.T) {
+	t.Parallel()
+	pdf := []byte("%PDF-1.4\nfake pdf bytes\n%%EOF")
+	server := twoHopServer(t, pdf, nil)
+	client := newTestClient(t, server)
+
+	doc, err := client.Render.Document(context.Background(), polipage.ProjectModeInput{
+		Project: "billing", Template: "invoice",
+		Version: polipage.Opt("1.0.0"),
+		Data:    map[string]any{"invoiceNumber": "INV-001"},
+	})
+	if err != nil {
+		t.Fatalf("Document err = %v", err)
+	}
+	if doc.DocumentID != "doc_test_abc" {
+		t.Errorf("DocumentID = %q, want doc_test_abc", doc.DocumentID)
+	}
+	if doc.OrganizationID != "org_test_xyz" {
+		t.Errorf("OrganizationID = %q, want org_test_xyz", doc.OrganizationID)
+	}
+	if doc.Environment != polipage.EnvironmentSandbox {
+		t.Errorf("Environment = %q, want sandbox", doc.Environment)
+	}
+	if doc.PageCount != 2 || doc.SizeBytes != int64(len(pdf)) {
+		t.Errorf("PageCount=%d SizeBytes=%d, want 2/%d", doc.PageCount, doc.SizeBytes, len(pdf))
+	}
+	if doc.PresignedPDFURL == "" || !strings.Contains(doc.PresignedPDFURL, "/s3/") {
+		t.Errorf("PresignedPDFURL = %q, want server-relative s3 URL", doc.PresignedPDFURL)
+	}
+	// Nullable wire fields decoded to *string.
+	if doc.ProjectSlug == nil || *doc.ProjectSlug != "billing" {
+		t.Errorf("ProjectSlug = %v, want non-nil pointing to 'billing'", doc.ProjectSlug)
+	}
+	if doc.Version == nil || *doc.Version != "1.0.0" {
+		t.Errorf("Version = %v, want non-nil pointing to '1.0.0'", doc.Version)
+	}
+}
+
+func TestRender_Document_preservesNullsAsNilPointers(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{
+			"documentId":"doc_1","organizationId":"org_1",
+			"projectId":null,"projectSlug":null,"templateId":null,"templateSlug":null,
+			"version":null,"environment":"sandbox","apiKeyId":null,
+			"format":"A4","orientation":null,"locale":null,
+			"pageCount":1,"sizeBytes":100,"createdAt":"2026-05-21T10:00:00Z",
+			"metadata":{},"presignedPdfUrl":"https://s3.example/x","expiresAt":"2026-05-21T10:15:00Z"
+		}`)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server)
+	doc, err := client.Render.Document(context.Background(), polipage.ProjectModeInput{
+		Project: "x", Template: "y", Data: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("Document err = %v", err)
+	}
+	if doc.ProjectID != nil || doc.ProjectSlug != nil || doc.Version != nil || doc.Orientation != nil || doc.Locale != nil || doc.APIKeyID != nil {
+		t.Errorf("expected nullable fields to be nil pointers, got %+v", doc)
+	}
+}
+
+func TestRender_Document_metadataAlwaysNonNil(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{
+			"documentId":"d","organizationId":"o","environment":"sandbox",
+			"format":"A4","pageCount":1,"sizeBytes":1,
+			"createdAt":"2026-05-21T10:00:00Z",
+			"metadata":null,
+			"presignedPdfUrl":"https://x/x","expiresAt":"2026-05-21T10:15:00Z"
+		}`)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server)
+	doc, err := client.Render.Document(context.Background(), polipage.ProjectModeInput{
+		Project: "x", Template: "y", Data: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("Document err = %v", err)
+	}
+	if doc.Metadata == nil {
+		t.Fatal("Metadata = nil, want non-nil empty map (server sent null)")
+	}
+	if len(doc.Metadata) != 0 {
+		t.Errorf("Metadata = %v, want empty map", doc.Metadata)
+	}
+}
+
+func TestRender_Document_emptyProjectRejectedClientSide(t *testing.T) {
+	t.Parallel()
+	// Defense in depth: an empty Project must fail before any HTTP call
+	// with ErrCodeProjectRequiredForDocument.
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server)
+	_, err := client.Render.Document(context.Background(), polipage.ProjectModeInput{
+		Project: "", Template: "y", Data: map[string]any{},
+	})
+	if err == nil {
+		t.Fatal("Document err = nil, want validation error")
+	}
+	var pErr *polipage.Error
+	if !errors.As(err, &pErr) || pErr.Code != polipage.ErrCodeProjectRequiredForDocument {
+		t.Errorf("err = %v, want Code=PROJECT_REQUIRED_FOR_DOCUMENT", err)
+	}
+	if calls.Load() != 0 {
+		t.Error("server received a request; client-side validation should have prevented it")
+	}
+}
+
+func TestRender_Document_metadataNestedValueRejected(t *testing.T) {
+	t.Parallel()
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server)
+	_, err := client.Render.Document(context.Background(), polipage.ProjectModeInput{
+		Project: "x", Template: "y", Data: map[string]any{},
+		Metadata: polipage.RenderMetadata{
+			"nested": map[string]any{"oops": "no nested maps"},
+		},
+	})
+	var pErr *polipage.Error
+	if !errors.As(err, &pErr) || pErr.Code != polipage.ErrCodeInvalidOptions {
+		t.Errorf("err = %v, want *Error with Code=invalid_options", err)
+	}
+	if calls.Load() != 0 {
+		t.Error("server received a request; metadata validation should be pre-flight")
+	}
+}
+
+func TestRender_PDF_twoHopReturnsBytes(t *testing.T) {
+	t.Parallel()
+	pdf := []byte("%PDF-1.4\nthe content\n%%EOF")
+	server := twoHopServer(t, pdf, nil)
+	client := newTestClient(t, server)
+
+	got, err := client.Render.PDF(context.Background(), polipage.ProjectModeInput{
+		Project: "billing", Template: "invoice",
+		Version: polipage.Opt("1.0.0"),
+		Data:    map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("PDF err = %v", err)
+	}
+	if !bytes.Equal(got, pdf) {
+		t.Fatalf("PDF bytes mismatch:\n got %q\nwant %q", got, pdf)
+	}
+}
+
+func TestRender_PDF_presignedURLFailureMapsToDownloadFailed(t *testing.T) {
+	t.Parallel()
+	mux := http.NewServeMux()
+	var serverURL string
+	mux.HandleFunc("/v1/render", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{
+			"documentId":"d","organizationId":"o","environment":"sandbox",
+			"format":"A4","pageCount":1,"sizeBytes":1,
+			"createdAt":"2026-05-21T10:00:00Z","metadata":{},
+			"presignedPdfUrl":"`+serverURL+`/s3/expired",
+			"expiresAt":"2026-05-21T10:15:00Z"
+		}`)
+	})
+	mux.HandleFunc("/s3/expired", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	serverURL = server.URL
+
+	client := newTestClient(t, server)
+	_, err := client.Render.PDF(context.Background(), polipage.ProjectModeInput{
+		Project: "x", Template: "y", Data: map[string]any{},
+	})
+	var pErr *polipage.Error
+	if !errors.As(err, &pErr) || pErr.Code != polipage.ErrCodeDownloadFailed {
+		t.Fatalf("err = %v, want Code=DOWNLOAD_FAILED", err)
+	}
+	if pErr.StatusCode != 403 {
+		t.Errorf("StatusCode = %d, want 403", pErr.StatusCode)
+	}
+}
+
+func TestRender_PDFStream_returnsReadableBody(t *testing.T) {
+	t.Parallel()
+	pdf := []byte("%PDF-stream content")
+	server := twoHopServer(t, pdf, nil)
+	client := newTestClient(t, server)
+
+	body, err := client.Render.PDFStream(context.Background(), polipage.ProjectModeInput{
+		Project: "x", Template: "y", Data: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("PDFStream err = %v", err)
+	}
+	defer func() { _ = body.Close() }()
+	got, err := io.ReadAll(body)
+	if err != nil {
+		t.Fatalf("read body err = %v", err)
+	}
+	if !bytes.Equal(got, pdf) {
+		t.Fatalf("stream bytes mismatch:\n got %q\nwant %q", got, pdf)
+	}
+}
+
+func TestDocumentDescriptor_DownloadPDF_succeeds(t *testing.T) {
+	t.Parallel()
+	pdf := []byte("%PDF-from-descriptor")
+	server := twoHopServer(t, pdf, nil)
+	client := newTestClient(t, server)
+
+	doc, err := client.Render.Document(context.Background(), polipage.ProjectModeInput{
+		Project: "x", Template: "y", Data: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("Document err = %v", err)
+	}
+	got, err := doc.DownloadPDF(context.Background())
+	if err != nil {
+		t.Fatalf("DownloadPDF err = %v", err)
+	}
+	if !bytes.Equal(got, pdf) {
+		t.Fatalf("download bytes mismatch:\n got %q\nwant %q", got, pdf)
 	}
 }
 
