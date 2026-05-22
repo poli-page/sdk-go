@@ -85,7 +85,7 @@ func NewClient(opts ...option.RequestOption) *Client {
 		initErr = &Error{Code: ErrCodeInvalidOptions, Message: "option.WithAPIKey is required"}
 	}
 	if cfg.HTTPClient == nil {
-		cfg.HTTPClient = &http.Client{}
+		cfg.HTTPClient = &http.Client{Transport: defaultTransport()}
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.DiscardHandler)
@@ -104,25 +104,29 @@ func (c *Client) userAgent() string {
 // transport is the internal seam each namespace uses to issue HTTP
 // requests. *Client is the production implementer; the interface stays
 // around as a documented future mock-point per sdk-go-plan.md §3.2.
+//
+// per carries per-call overrides resolved from variadic option.RequestOption
+// values (IdempotencyKey, Timeout, Headers). Fields left zero defer to the
+// client's resolved Config.
 type transport interface {
-	post(ctx context.Context, path string, body any, idempotencyKey string) (*http.Response, error)
-	get(ctx context.Context, path string) (*http.Response, error)
-	delete(ctx context.Context, path string) error
+	post(ctx context.Context, path string, body any, per clientconfig.Config) (*http.Response, error)
+	get(ctx context.Context, path string, per clientconfig.Config) (*http.Response, error)
+	delete(ctx context.Context, path string, per clientconfig.Config) error
 }
 
 // Compile-time assertion that *Client satisfies the transport seam.
 var _ transport = (*Client)(nil)
 
-func (c *Client) post(ctx context.Context, path string, body any, idempotencyKey string) (*http.Response, error) {
-	return c.do(ctx, http.MethodPost, path, body, idempotencyKey)
+func (c *Client) post(ctx context.Context, path string, body any, per clientconfig.Config) (*http.Response, error) {
+	return c.do(ctx, http.MethodPost, path, body, per)
 }
 
-func (c *Client) get(ctx context.Context, path string) (*http.Response, error) {
-	return c.do(ctx, http.MethodGet, path, nil, "")
+func (c *Client) get(ctx context.Context, path string, per clientconfig.Config) (*http.Response, error) {
+	return c.do(ctx, http.MethodGet, path, nil, per)
 }
 
-func (c *Client) delete(ctx context.Context, path string) error {
-	resp, err := c.do(ctx, http.MethodDelete, path, nil, "")
+func (c *Client) delete(ctx context.Context, path string, per clientconfig.Config) error {
+	resp, err := c.do(ctx, http.MethodDelete, path, nil, per)
 	if err != nil {
 		return err
 	}
@@ -134,7 +138,7 @@ func (c *Client) delete(ctx context.Context, path string) error {
 // do is the orchestrator: it runs the request with retries, hook firing,
 // per-attempt timeout, and full error mapping. Callers responsible for
 // closing resp.Body on success.
-func (c *Client) do(ctx context.Context, method, path string, body any, idempotencyKey string) (*http.Response, error) {
+func (c *Client) do(ctx context.Context, method, path string, body any, per clientconfig.Config) (*http.Response, error) {
 	if c.initErr != nil {
 		c.fireOnError(c.initErr)
 		return nil, c.initErr
@@ -173,7 +177,7 @@ func (c *Client) do(ctx context.Context, method, path string, body any, idempote
 			}
 		}
 
-		resp, retryAfter, retryable, err := c.sendOnce(ctx, method, path, bodyBytes, idempotencyKey, attempt+1)
+		resp, retryAfter, retryable, err := c.sendOnce(ctx, method, path, bodyBytes, per, attempt+1)
 		if err == nil {
 			return resp, nil
 		}
@@ -197,11 +201,15 @@ func (c *Client) do(ctx context.Context, method, path string, body any, idempote
 // transferred to the returned resp.Body via cancelOnClose — closing the
 // body cancels the context. This avoids the trap where deferring cancel()
 // inside sendOnce kills the body mid-read.
-func (c *Client) sendOnce(ctx context.Context, method, path string, bodyBytes []byte, idempotencyKey string, attempt int) (*http.Response, time.Duration, bool, *Error) {
+func (c *Client) sendOnce(ctx context.Context, method, path string, bodyBytes []byte, per clientconfig.Config, attempt int) (*http.Response, time.Duration, bool, *Error) {
+	timeout := c.cfg.Timeout
+	if per.Timeout > 0 {
+		timeout = per.Timeout
+	}
 	attemptCtx := ctx
 	var cancel context.CancelFunc
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
-		attemptCtx, cancel = context.WithTimeout(ctx, c.cfg.Timeout)
+		attemptCtx, cancel = context.WithTimeout(ctx, timeout)
 	}
 	cleanup := func() {
 		if cancel != nil {
@@ -219,7 +227,15 @@ func (c *Client) sendOnce(ctx context.Context, method, path string, bodyBytes []
 		cleanup()
 		return nil, 0, false, &Error{Code: ErrCodeInvalidOptions, Message: "failed to build request: " + err.Error(), Cause: err}
 	}
-	req.Header = httpx.BuildHeaders(method, c.cfg.APIKey, idempotencyKey, c.userAgent())
+	req.Header = httpx.BuildHeaders(method, c.cfg.APIKey, per.IdempotencyKey, c.userAgent())
+	// Construction-time custom headers, then per-call overrides. Caller's
+	// keys may overwrite the SDK's own; documented in option.WithHeader.
+	for k, v := range c.cfg.Headers {
+		req.Header.Set(k, v)
+	}
+	for k, v := range per.Headers {
+		req.Header.Set(k, v)
+	}
 
 	c.cfg.Logger.LogAttrs(ctx, slog.LevelDebug, "polipage: http attempt",
 		slog.String("method", method),
@@ -234,7 +250,7 @@ func (c *Client) sendOnce(ctx context.Context, method, path string, bodyBytes []
 			return nil, 0, false, mapContextError(ctx.Err())
 		}
 		if errors.Is(err, context.DeadlineExceeded) {
-			return nil, 0, true, &Error{Code: ErrCodeTimeout, Message: fmt.Sprintf("request timed out after %v", c.cfg.Timeout), Cause: err}
+			return nil, 0, true, &Error{Code: ErrCodeTimeout, Message: fmt.Sprintf("request timed out after %v", timeout), Cause: err}
 		}
 		return nil, 0, true, &Error{Code: ErrCodeNetworkError, Message: err.Error(), Cause: err}
 	}
@@ -267,6 +283,24 @@ func (c *Client) sendOnce(ctx context.Context, method, path string, bodyBytes []
 		Message:    message,
 		RequestID:  requestID,
 	}
+}
+
+// defaultTransport returns the *http.Transport used by NewClient when the
+// caller did not supply their own *http.Client. The values are tuned for
+// the SDK's typical workload (1 process talking to 1 API host on HTTP/1.1
+// + HTTP/2) per sdk-go-plan.md §5.2 — keep idle connections per host
+// generously open so successive render calls reuse a warm connection.
+//
+// Callers wanting custom transport (proxies, TLS pinning, recording) pass
+// their own *http.Client via [option.WithHTTPClient]; the SDK never touches
+// it after that.
+func defaultTransport() *http.Transport {
+	// Clone the stdlib default so we inherit Proxy / DialContext / HTTP/2
+	// negotiation defaults without re-implementing them.
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.MaxIdleConnsPerHost = 10
+	t.IdleConnTimeout = 90 * time.Second
+	return t
 }
 
 // cancelOnClose wraps an http.Response.Body so that closing it also

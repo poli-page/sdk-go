@@ -124,6 +124,10 @@ const (
 	// is unparseable or missing. Distinct from ErrCodeAPIInternalError, which
 	// has the same wire value but originates from the API.
 	ErrCodeInternalError = "INTERNAL_ERROR"
+	// ErrCodeIOFailed marks local filesystem failures from [RenderToFile]
+	// (MkdirAll / Create / write errors). The underlying os error is wrapped
+	// in Cause — use errors.Unwrap or errors.As(*os.PathError) to inspect.
+	ErrCodeIOFailed = "io_failed"
 )
 
 // Known API error codes pass through verbatim from the deployed API.
@@ -165,16 +169,20 @@ const (
 // receivers whose Code equals the sentinel's, with two logical groups
 // (auth, rate-limit) that compare equal across related codes.
 var (
-	ErrUnauthorized     = &Error{Code: ErrCodeMissingAPIKey}    // also matches INVALID_API_KEY
-	ErrForbidden        = &Error{Code: ErrCodeForbidden}        //
-	ErrNotFound         = &Error{Code: ErrCodeNotFound}         //
-	ErrVersionNotFound  = &Error{Code: ErrCodeVersionNotFound}  //
-	ErrDocumentNotFound = &Error{Code: ErrCodeDocumentNotFound} //
-	ErrGone             = &Error{Code: ErrCodeGone}             //
-	ErrValidation       = &Error{Code: ErrCodeValidationError}  //
-	ErrRateLimit        = &Error{Code: ErrCodeQuotaExceeded}    // also matches OVERAGE_CAP_EXCEEDED
-	ErrTimeout          = &Error{Code: ErrCodeTimeout}          //
-	ErrAborted          = &Error{Code: ErrCodeAborted}          //
-	ErrNetwork          = &Error{Code: ErrCodeNetworkError}     //
-	ErrDownloadFailed   = &Error{Code: ErrCodeDownloadFailed}   //
+	ErrUnauthorized          = &Error{Code: ErrCodeMissingAPIKey}         // also matches INVALID_API_KEY
+	ErrForbidden             = &Error{Code: ErrCodeForbidden}             //
+	ErrNotFound              = &Error{Code: ErrCodeNotFound}              //
+	ErrVersionNotFound       = &Error{Code: ErrCodeVersionNotFound}       //
+	ErrDocumentNotFound      = &Error{Code: ErrCodeDocumentNotFound}      //
+	ErrGone                  = &Error{Code: ErrCodeGone}                  //
+	ErrValidation            = &Error{Code: ErrCodeValidationError}       //
+	ErrRateLimit             = &Error{Code: ErrCodeQuotaExceeded}         // also matches OVERAGE_CAP_EXCEEDED
+	ErrTimeout               = &Error{Code: ErrCodeTimeout}               //
+	ErrAborted               = &Error{Code: ErrCodeAborted}               //
+	ErrNetwork               = &Error{Code: ErrCodeNetworkError}          //
+	ErrDownloadFailed        = &Error{Code: ErrCodeDownloadFailed}        //
+	ErrIOFailed              = &Error{Code: ErrCodeIOFailed}              // local filesystem write failure from RenderToFile
+	ErrPaymentRequired       = &Error{Code: ErrCodePaymentRequired}       // 402 — unpaid invoice / subscription lapsed
+	ErrOrganizationCancelled = &Error{Code: ErrCodeOrganizationCancelled} // 403 — subscription cancelled, service is read-only
+	ErrOrganizationPurged    = &Error{Code: ErrCodeOrganizationPurged}    // 410 — organization data has been purged
 )

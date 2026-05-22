@@ -38,6 +38,25 @@ type Config struct {
 
 	// IdempotencyKey is per-call only. Empty in the construction-time Config.
 	IdempotencyKey string
+
+	// Headers are extra HTTP headers attached to outgoing requests. Both
+	// construction-time and per-call values are merged into the final
+	// request header set, with per-call entries overriding construction-time
+	// entries for the same key. Per-call overrides win over the SDK's own
+	// headers too — caller's responsibility.
+	Headers map[string]string
+}
+
+// MergePerCall returns a Config holding only the per-call overrides from a
+// slice of options. Construction-time defaults are NOT folded in — the
+// orchestrator combines them with the client's resolved Config at request
+// time.
+func MergePerCall(apply func(*Config) error) (Config, error) {
+	var c Config
+	if err := apply(&c); err != nil {
+		return c, err
+	}
+	return c, nil
 }
 
 // Default returns a Config seeded with the package defaults. Constants come

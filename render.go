@@ -31,12 +31,12 @@ func (r *Render) Preview(ctx context.Context, in RenderInput, opts ...option.Req
 	if err := validateMetadata(metadataOf(in)); err != nil {
 		return nil, err
 	}
-	idempotencyKey, err := resolveIdempotencyKey(opts)
+	per, err := resolvePerCall(opts)
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := r.client.post(ctx, constants.PathRenderPreview, in, idempotencyKey)
+	resp, err := r.client.post(ctx, constants.PathRenderPreview, in, per)
 	if err != nil {
 		return nil, err
 	}
@@ -69,12 +69,12 @@ func (r *Render) Document(ctx context.Context, in ProjectModeInput, opts ...opti
 	if err := validateMetadata(in.Metadata); err != nil {
 		return nil, err
 	}
-	idempotencyKey, err := resolveIdempotencyKey(opts)
+	per, err := resolvePerCall(opts)
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := r.client.post(ctx, constants.PathRender, in, idempotencyKey)
+	resp, err := r.client.post(ctx, constants.PathRender, in, per)
 	if err != nil {
 		return nil, err
 	}
@@ -172,19 +172,20 @@ func (c *Client) downloadStream(ctx context.Context, url string) (io.ReadCloser,
 	return resp.Body, nil
 }
 
-// resolveIdempotencyKey returns the caller-supplied key from per-call
-// options, or a fresh UUID4 if none was provided.
-func resolveIdempotencyKey(opts []option.RequestOption) (string, error) {
-	var perCall clientconfig.Config
+// resolvePerCall folds the variadic per-call options into a Config and
+// fills in defaults the transport relies on (auto UUID4 for Idempotency-Key
+// when the caller didn't supply one).
+func resolvePerCall(opts []option.RequestOption) (clientconfig.Config, error) {
+	var per clientconfig.Config
 	for _, opt := range opts {
-		if err := opt(&perCall); err != nil {
-			return "", &Error{Code: ErrCodeInvalidOptions, Message: err.Error(), Cause: err}
+		if err := opt(&per); err != nil {
+			return per, &Error{Code: ErrCodeInvalidOptions, Message: err.Error(), Cause: err}
 		}
 	}
-	if perCall.IdempotencyKey != "" {
-		return perCall.IdempotencyKey, nil
+	if per.IdempotencyKey == "" {
+		per.IdempotencyKey = uuid.New()
 	}
-	return uuid.New(), nil
+	return per, nil
 }
 
 // metadataOf returns the Metadata field from either render-input variant.

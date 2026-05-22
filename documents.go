@@ -6,6 +6,7 @@ import (
 	"io"
 	"strconv"
 
+	"github.com/poli-page/sdk-go/internal/clientconfig"
 	"github.com/poli-page/sdk-go/internal/constants"
 	"github.com/poli-page/sdk-go/option"
 )
@@ -23,7 +24,7 @@ type Documents struct {
 //
 // Spec §6.1.
 func (d *Documents) Get(ctx context.Context, id string) (*DocumentDescriptor, error) {
-	resp, err := d.client.get(ctx, constants.PathDocument(id))
+	resp, err := d.client.get(ctx, constants.PathDocument(id), clientconfig.Config{})
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +56,7 @@ func (d *Documents) Get(ctx context.Context, id string) (*DocumentDescriptor, er
 //
 // Spec §6.2.
 func (d *Documents) Preview(ctx context.Context, id string) (*DocumentPreviewResult, error) {
-	resp, err := d.client.get(ctx, constants.PathDocumentPreview(id))
+	resp, err := d.client.get(ctx, constants.PathDocumentPreview(id), clientconfig.Config{})
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +90,7 @@ func (d *Documents) Preview(ctx context.Context, id string) (*DocumentPreviewRes
 //
 // Spec §6.3.
 func (d *Documents) Thumbnails(ctx context.Context, id string, options ThumbnailOptions, opts ...option.RequestOption) ([]Thumbnail, error) {
-	idempotencyKey, err := resolveIdempotencyKey(opts)
+	per, err := resolvePerCall(opts)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +98,7 @@ func (d *Documents) Thumbnails(ctx context.Context, id string, options Thumbnail
 		Thumbnails ThumbnailOptions `json:"thumbnails"`
 	}{Thumbnails: options}
 
-	resp, err := d.client.post(ctx, constants.PathDocumentThumbnails(id), wire, idempotencyKey)
+	resp, err := d.client.post(ctx, constants.PathDocumentThumbnails(id), wire, per)
 	if err != nil {
 		return nil, err
 	}
@@ -124,5 +125,5 @@ func (d *Documents) Thumbnails(ctx context.Context, id string, options Thumbnail
 //
 // Spec §6.4.
 func (d *Documents) Delete(ctx context.Context, id string) error {
-	return d.client.delete(ctx, constants.PathDocument(id))
+	return d.client.delete(ctx, constants.PathDocument(id), clientconfig.Config{})
 }

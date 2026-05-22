@@ -73,6 +73,10 @@ func TestError_errorsIsViaSentinels(t *testing.T) {
 		{"timeout matches ErrTimeout", &Error{Code: ErrCodeTimeout}, ErrTimeout, true},
 		{"aborted matches ErrAborted", &Error{Code: ErrCodeAborted}, ErrAborted, true},
 		{"NOT_FOUND does NOT match ErrForbidden", &Error{Code: ErrCodeNotFound, StatusCode: 404}, ErrForbidden, false},
+		{"PAYMENT_REQUIRED matches ErrPaymentRequired", &Error{Code: ErrCodePaymentRequired, StatusCode: 402}, ErrPaymentRequired, true},
+		{"ORGANIZATION_CANCELLED matches ErrOrganizationCancelled", &Error{Code: ErrCodeOrganizationCancelled, StatusCode: 403}, ErrOrganizationCancelled, true},
+		{"ORGANIZATION_PURGED matches ErrOrganizationPurged", &Error{Code: ErrCodeOrganizationPurged, StatusCode: 410}, ErrOrganizationPurged, true},
+		{"PAYMENT_REQUIRED does NOT match ErrForbidden (distinct lifecycle codes)", &Error{Code: ErrCodePaymentRequired, StatusCode: 402}, ErrForbidden, false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

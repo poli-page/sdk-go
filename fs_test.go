@@ -75,6 +75,36 @@ func TestRenderToFile_overwritesExistingFile(t *testing.T) {
 	}
 }
 
+func TestRenderToFile_ioErrorReturnsErrIOFailed(t *testing.T) {
+	t.Parallel()
+	pdf := []byte("%PDF-1.4\nx")
+	server := twoHopServer(t, pdf, nil)
+	client := newTestClient(t, server)
+
+	// Put a regular file where RenderToFile's MkdirAll wants a directory.
+	// MkdirAll then fails because the parent path resolves to a file.
+	dir := t.TempDir()
+	blocker := filepath.Join(dir, "blocker")
+	if err := os.WriteFile(blocker, []byte{}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(blocker, "out.pdf")
+
+	err := polipage.RenderToFile(context.Background(), client, polipage.ProjectModeInput{
+		Project: "x", Template: "y", Data: map[string]any{},
+	}, dst)
+	if !errors.Is(err, polipage.ErrIOFailed) {
+		t.Fatalf("err = %v, want errors.Is(..., ErrIOFailed)", err)
+	}
+	var pErr *polipage.Error
+	if !errors.As(err, &pErr) {
+		t.Fatalf("err = %v, want *polipage.Error", err)
+	}
+	if pErr.Cause == nil {
+		t.Error("Cause = nil, want wrapped os error")
+	}
+}
+
 func TestRenderToFile_renderErrorPropagatesWithoutCreatingFile(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

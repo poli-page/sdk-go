@@ -28,17 +28,17 @@ func RenderToFile(ctx context.Context, c *Client, in ProjectModeInput, path stri
 	defer func() { _ = body.Close() }()
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return &Error{Code: ErrCodeInvalidOptions, Message: "failed to create directory: " + err.Error(), Cause: err}
+		return &Error{Code: ErrCodeIOFailed, Message: "failed to create directory: " + err.Error(), Cause: err}
 	}
 
 	f, err := os.Create(path)
 	if err != nil {
-		return &Error{Code: ErrCodeInvalidOptions, Message: "failed to create file: " + err.Error(), Cause: err}
+		return &Error{Code: ErrCodeIOFailed, Message: "failed to create file: " + err.Error(), Cause: err}
 	}
 	defer func() { _ = f.Close() }()
 
 	if _, err := io.Copy(f, body); err != nil {
-		return &Error{Code: ErrCodeInvalidOptions, Message: "failed to write file: " + err.Error(), Cause: err}
+		return &Error{Code: ErrCodeIOFailed, Message: "failed to write file: " + err.Error(), Cause: err}
 	}
 	return nil
 }

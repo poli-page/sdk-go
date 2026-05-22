@@ -670,6 +670,102 @@ func TestDocumentDescriptor_DownloadPDF_succeeds(t *testing.T) {
 	}
 }
 
+func TestRender_Preview_perCallWithRequestTimeoutOverridesClient(t *testing.T) {
+	t.Parallel()
+	// Slow server: 1s response. Client timeout is generous (60s default),
+	// but the per-call WithRequestTimeout of 50ms must fire first.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-time.After(1 * time.Second):
+		case <-r.Context().Done():
+		}
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server, option.WithMaxRetries(0))
+	_, err := client.Render.Preview(
+		context.Background(),
+		polipage.ProjectModeInput{Project: "x", Template: "y", Data: map[string]any{}},
+		option.WithRequestTimeout(50*time.Millisecond),
+	)
+	if !errors.Is(err, polipage.ErrTimeout) {
+		t.Fatalf("err = %v, want errors.Is(..., ErrTimeout)", err)
+	}
+}
+
+func TestRender_Preview_perCallWithHeaderAttachesHeader(t *testing.T) {
+	t.Parallel()
+	var got string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("X-Trace-Id")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, renderPreviewJSON)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server)
+	_, err := client.Render.Preview(
+		context.Background(),
+		polipage.ProjectModeInput{Project: "x", Template: "y", Data: map[string]any{}},
+		option.WithHeader("X-Trace-Id", "trace-abc-123"),
+	)
+	if err != nil {
+		t.Fatalf("Preview err = %v", err)
+	}
+	if got != "trace-abc-123" {
+		t.Errorf("X-Trace-Id = %q, want trace-abc-123", got)
+	}
+}
+
+func TestRender_Preview_constructionWithHeaderAppliesToEveryRequest(t *testing.T) {
+	t.Parallel()
+	var seen []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Header.Get("X-Tenant"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, renderPreviewJSON)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server, option.WithHeader("X-Tenant", "tenant-42"))
+	for i := 0; i < 2; i++ {
+		if _, err := client.Render.Preview(context.Background(), polipage.ProjectModeInput{
+			Project: "x", Template: "y", Data: map[string]any{},
+		}); err != nil {
+			t.Fatalf("Preview err = %v", err)
+		}
+	}
+	for i, h := range seen {
+		if h != "tenant-42" {
+			t.Errorf("seen[%d] = %q, want tenant-42", i, h)
+		}
+	}
+}
+
+func TestRender_Preview_perCallHeaderOverridesConstructionHeader(t *testing.T) {
+	t.Parallel()
+	var got string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("X-Env")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, renderPreviewJSON)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server, option.WithHeader("X-Env", "production"))
+	_, err := client.Render.Preview(
+		context.Background(),
+		polipage.ProjectModeInput{Project: "x", Template: "y", Data: map[string]any{}},
+		option.WithHeader("X-Env", "staging"), // per-call wins
+	)
+	if err != nil {
+		t.Fatalf("Preview err = %v", err)
+	}
+	if got != "staging" {
+		t.Errorf("X-Env = %q, want staging (per-call overrides construction)", got)
+	}
+}
+
 func TestRender_Preview_hookPanicDoesNotBreakRequest(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

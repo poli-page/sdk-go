@@ -121,3 +121,36 @@ func WithIdempotencyKey(key string) RequestOption {
 		return nil
 	}
 }
+
+// WithRequestTimeout overrides the per-request deadline for a single call.
+// Pass as the last argument to any method to override the client-wide
+// [WithTimeout] for that call only. When the caller's context already has
+// a deadline, this override is ignored — context wins.
+//
+// Setting WithRequestTimeout at construction time also adjusts the client
+// default, identically to [WithTimeout].
+func WithRequestTimeout(d time.Duration) RequestOption {
+	return func(c *clientconfig.Config) error {
+		c.Timeout = d
+		return nil
+	}
+}
+
+// WithHeader attaches an extra HTTP header to outgoing requests. Pass at
+// construction time to add the header to every request, or as a per-call
+// last argument to override / add per-request. Per-call entries override
+// construction-time entries for the same key.
+//
+// Useful for tracing IDs, custom auth proxy tokens, or feature flags. The
+// SDK's own headers (Authorization, Content-Type, Accept, User-Agent,
+// Idempotency-Key) are written first; if a caller-supplied key matches one
+// of these, the caller wins — use with care.
+func WithHeader(key, value string) RequestOption {
+	return func(c *clientconfig.Config) error {
+		if c.Headers == nil {
+			c.Headers = make(map[string]string, 1)
+		}
+		c.Headers[key] = value
+		return nil
+	}
+}
