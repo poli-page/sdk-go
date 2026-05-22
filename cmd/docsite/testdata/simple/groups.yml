@@ -1,0 +1,8 @@
+groups:
+  - name: Getting started
+    sections:
+      - Install
+      - Quick start
+  - name: Production
+    sections:
+      - Errors
