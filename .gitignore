@@ -40,3 +40,14 @@ output/
 # Env
 .env
 .env.local
+
+# Claude Code per-machine settings (allowed-commands, etc.)
+# Shared project config can still live in .claude/settings.json.
+.claude/settings.local.json
+
+# Local SDK handoff docs from the platform repo (poli-page/poli-page).
+# These are derivative working copies — the canonical versions live in
+# docs/onboarding/micka/ over there. Keep them out of this public repo.
+sdk-engineering-guide.md
+sdk-go-plan.md
+sdk-roadmap.md
