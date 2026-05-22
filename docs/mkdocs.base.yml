@@ -44,3 +44,4 @@ extra:
       link: https://github.com/poli-page/sdk-go
 
 docs_dir: site
+site_dir: _site
