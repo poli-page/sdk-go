@@ -1,0 +1,27 @@
+groups:
+  - name: Getting started
+    sections:
+      - Install
+      - Quick start
+  - name: Concepts
+    sections:
+      - Working with stored documents
+      - Authentication & environments
+      - Methods
+      - Configuration
+  - name: Production
+    sections:
+      - Error handling
+      - Cancellation
+      - Observability
+      - Retries & idempotency
+  - name: Reference
+    sections:
+      - Type system
+      - Concurrency
+      - Runtime support
+      - Requirements
+  - name: Support
+    sections:
+      - Documentation & support
+      - License
