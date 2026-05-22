@@ -23,6 +23,7 @@ func Split(readme []byte) (SplitResult, error) {
 	var cur *Page
 	flush := func() {
 		if cur != nil {
+			cur.Content = strings.TrimRight(cur.Content, "\n") + "\n"
 			pages = append(pages, *cur)
 			cur = nil
 		}
@@ -45,7 +46,11 @@ func Split(readme []byte) (SplitResult, error) {
 	}
 	flush()
 	// Drop trailing blank lines from the preamble so it ends with exactly one \n.
-	preambleStr := strings.TrimRight(preamble.String(), "\n") + "\n"
+	raw := preamble.String()
+	var preambleStr string
+	if raw != "" {
+		preambleStr = strings.TrimRight(raw, "\n") + "\n"
+	}
 	return SplitResult{
 		Index: Page{Slug: "index", Content: preambleStr},
 		Pages: pages,

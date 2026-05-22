@@ -67,4 +67,27 @@ errors body
 	if !strings.Contains(res.Pages[1].Content, "### Sub") {
 		t.Errorf("Quick start page should contain its H3 subsection, got:\n%s", res.Pages[1].Content)
 	}
+	gotSlugs := []string{res.Pages[0].Slug, res.Pages[1].Slug, res.Pages[2].Slug}
+	wantSlugs := []string{"install", "quick-start", "errors"}
+	for i := range gotSlugs {
+		if gotSlugs[i] != wantSlugs[i] {
+			t.Errorf("page %d slug = %q, want %q", i, gotSlugs[i], wantSlugs[i])
+		}
+	}
+}
+
+func TestSplit_PageContentEndsWithSingleNewline(t *testing.T) {
+	in := "# Title\n\nintro\n\n## A\n\nbody A\n\n\n## B\n\nbody B\n"
+	res, err := Split([]byte(in))
+	if err != nil {
+		t.Fatalf("Split: %v", err)
+	}
+	for i, p := range res.Pages {
+		if !strings.HasSuffix(p.Content, "\n") {
+			t.Errorf("page %d (%q) does not end with newline: %q", i, p.Title, p.Content)
+		}
+		if strings.HasSuffix(p.Content, "\n\n") {
+			t.Errorf("page %d (%q) ends with multiple newlines: %q", i, p.Title, p.Content)
+		}
+	}
 }
