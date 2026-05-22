@@ -1,0 +1,49 @@
+name: Integration
+
+on:
+  # Nightly run against develop so we catch API drift without waiting for
+  # the next PR. Cron is UTC.
+  schedule:
+    - cron: "37 3 * * *"
+  # Also run on every push to main — pre-tag verification that the live
+  # API surface still matches the SDK.
+  push:
+    branches: [main]
+  # Manual trigger for ad-hoc runs (re-test after an API hot-fix, etc.).
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GOFLAGS: -mod=readonly
+
+jobs:
+  integration:
+    # Skip on forks — they don't have the secret and the API key shouldn't
+    # leak into untrusted PR contexts. Forks should fork-test against their
+    # own keys with workflow_dispatch.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.2.2
+
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version: '1.26'
+
+      - name: Run integration tests
+        env:
+          POLI_PAGE_API_KEY: ${{ secrets.POLI_PAGE_API_KEY }}
+          # POLI_PAGE_BASE_URL defaults to https://api-develop.poli.page in
+          # render_integration_test.go's helper if the secret isn't set, so
+          # the secret is optional — useful when pointing the suite at a
+          # staging environment instead.
+          POLI_PAGE_BASE_URL: ${{ secrets.POLI_PAGE_BASE_URL }}
+        shell: bash
+        run: |
+          if [ -z "$POLI_PAGE_API_KEY" ]; then
+            echo "POLI_PAGE_API_KEY secret not set — skipping integration tests"
+            exit 0
+          fi
+          go test -tags=integration -race -count=1 -timeout=300s -v ./...

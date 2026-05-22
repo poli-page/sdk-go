@@ -5,6 +5,16 @@ on:
   pull_request:
     branches: [main]
 
+# Restrict workflow permissions to the minimum needed. ci.yml never writes
+# to the repo, never publishes anything, never touches secrets — read-only.
+permissions:
+  contents: read
+
+env:
+  # Prevent any CI step from accidentally mutating go.sum / fetching a new
+  # dep mid-build. Any new dependency must be added in a normal commit.
+  GOFLAGS: -mod=readonly
+
 jobs:
   test:
     runs-on: ${{ matrix.os }}
@@ -25,9 +35,9 @@ jobs:
         shell: bash
         run: git config --global core.autocrlf false
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.2.2
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
           go-version: ${{ matrix.go-version }}
 
@@ -75,6 +85,16 @@ jobs:
             echo "No .golangci.yml yet — skipping lint"
           fi
 
+      - name: govulncheck
+        shell: bash
+        run: |
+          if [ -f go.mod ]; then
+            go install golang.org/x/vuln/cmd/govulncheck@latest
+            "$(go env GOPATH)/bin/govulncheck" ./...
+          else
+            echo "No go.mod yet — skipping govulncheck"
+          fi
+
       - name: Test
         shell: bash
         run: |
@@ -83,3 +103,47 @@ jobs:
           else
             echo "No go.mod yet — skipping test"
           fi
+
+      - name: Consumer-module install-smoke
+        # Sanity check that a fresh downstream module can import the SDK
+        # and build a trivial program against it. Catches packaging
+        # regressions (broken go.mod, accidental internal/ exports,
+        # circular imports across option ↔ polipage, etc.) that the
+        # in-repo tests miss because they share the module.
+        shell: bash
+        run: |
+          if [ ! -f go.mod ]; then
+            echo "No go.mod yet — skipping smoke"
+            exit 0
+          fi
+          SMOKE_DIR="$(mktemp -d)"
+          cd "$SMOKE_DIR"
+          cat > go.mod <<EOF
+          module smoke
+
+          go 1.25
+
+          require github.com/poli-page/sdk-go v0.0.0-00010101000000-000000000000
+
+          replace github.com/poli-page/sdk-go => $GITHUB_WORKSPACE
+          EOF
+          cat > main.go <<'EOF'
+          package main
+
+          import (
+              "fmt"
+              polipage "github.com/poli-page/sdk-go"
+              "github.com/poli-page/sdk-go/option"
+          )
+
+          func main() {
+              c := polipage.NewClient(option.WithAPIKey("pp_test_smoke"))
+              _ = c
+              fmt.Println("smoke: NewClient ok")
+          }
+          EOF
+          # GOFLAGS=-mod=readonly is inherited from the workflow env, but the
+          # smoke module's go.mod has no go.sum yet — relax just for this step.
+          GOFLAGS= go mod tidy
+          GOFLAGS= go build ./...
+          GOFLAGS= go run .
