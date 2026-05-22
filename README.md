@@ -192,6 +192,8 @@ All options live in the [`option`](https://pkg.go.dev/github.com/poli-page/sdk-g
 | `option.WithOnRetry(fn)`               | `func(polipage.RetryEvent)`   | nil                      | Fires before each retry sleep |
 | `option.WithOnError(fn)`               | `func(error)`                 | nil                      | Fires on terminal failure |
 | `option.WithIdempotencyKey(key)`       | `string`                      | UUID4                    | **Per-call** — override the auto-generated key |
+| `option.WithRequestTimeout(d)`         | `time.Duration`               | `WithTimeout` value      | **Per-call** — override per-request deadline (no-op if ctx has a deadline) |
+| `option.WithHeader(key, value)`        | `string, string`              | —                        | **Construction + per-call** — extra request header; per-call wins on duplicate keys |
 
 ## Error handling
 
@@ -278,7 +280,49 @@ client := polipage.NewClient(
 )
 ```
 
-Hooks are synchronous, optional, and panic-safe — a hook that panics never breaks the request. For request/response inspection, inject a custom `*http.Client` via `option.WithHTTPClient` and add a middleware transport there.
+Hooks are synchronous, optional, and panic-safe — a hook that panics never breaks the request. For request/response inspection (full headers + body), inject a custom `*http.Client` via `option.WithHTTPClient` and add a middleware transport there — see the next section.
+
+### Middleware via `http.RoundTripper`
+
+The SDK's hooks fire at SDK-level events (retry, terminal error). For full-fidelity HTTP middleware — tracing, request signing, response caching, fixture recording, request/response logging with bodies — wrap a `http.RoundTripper` and pass it via `option.WithHTTPClient`. This is the stdlib idiom; the SDK does nothing special to enable it.
+
+```go
+type tracingTransport struct {
+    base http.RoundTripper
+}
+
+func (t *tracingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+    start := time.Now()
+    resp, err := t.base.RoundTrip(req)
+    log.Printf("%s %s → %d in %s", req.Method, req.URL.Path, resp.StatusCode, time.Since(start))
+    return resp, err
+}
+
+client := polipage.NewClient(
+    option.WithAPIKey(os.Getenv("POLI_PAGE_API_KEY")),
+    option.WithHTTPClient(&http.Client{
+        Transport: &tracingTransport{base: http.DefaultTransport},
+    }),
+)
+```
+
+Compose multiple layers by chaining `RoundTripper`s (each wraps the previous one's `base`). The SDK's retry loop runs *outside* this transport, so each `RoundTrip` corresponds to one attempt — log every retry by counting `RoundTrip` calls per request.
+
+### Per-call tracing IDs
+
+For one-off per-request headers (a tracing ID, a tenant override, a feature flag), use `option.WithHeader` as a per-call option without rebuilding the client:
+
+```go
+ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+defer cancel()
+
+pdf, err := client.Render.PDF(ctx, in,
+    option.WithHeader("X-Trace-Id", traceID),
+    option.WithRequestTimeout(5*time.Second), // overrides client default for this call only
+)
+```
+
+Per-call header keys win over construction-time `WithHeader` entries for the same key; both override the SDK's own headers (`Authorization`, `Content-Type`, etc.) if you supply matching keys — caller's responsibility.
 
 ## Retries & idempotency
 
