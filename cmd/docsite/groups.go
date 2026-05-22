@@ -79,6 +79,47 @@ func validateGroup(g Group) error {
 	return nil
 }
 
+// ValidateGroups checks that every page title is grouped, and every grouped
+// section name corresponds to a real page. Returns a single error listing all
+// mismatches so the maintainer fixes them in one pass.
+func ValidateGroups(pages []Page, groups []Group) error {
+	pageTitles := make(map[string]bool, len(pages))
+	for _, p := range pages {
+		pageTitles[p.Title] = true
+	}
+	grouped := make(map[string]bool)
+	for _, g := range groups {
+		for _, s := range g.Sections {
+			grouped[s] = true
+		}
+	}
+	var orphanH2, orphanGroup []string
+	for _, p := range pages {
+		if !grouped[p.Title] {
+			orphanH2 = append(orphanH2, p.Title)
+		}
+	}
+	for _, g := range groups {
+		for _, s := range g.Sections {
+			if !pageTitles[s] {
+				orphanGroup = append(orphanGroup, s)
+			}
+		}
+	}
+	if len(orphanH2) == 0 && len(orphanGroup) == 0 {
+		return nil
+	}
+	var sb strings.Builder
+	sb.WriteString("groups.yml is out of sync with README:\n")
+	for _, t := range orphanH2 {
+		fmt.Fprintf(&sb, "  README has H2 %q but no group lists it\n", t)
+	}
+	for _, t := range orphanGroup {
+		fmt.Fprintf(&sb, "  groups.yml lists %q but no such H2 in README\n", t)
+	}
+	return errors.New(sb.String())
+}
+
 func hasHeader(lines []string, key string) bool {
 	for _, l := range lines {
 		if strings.TrimSpace(l) == key {
