@@ -33,6 +33,9 @@ composer.lock
 bin/
 *.test
 *.out
+# Stray binaries from `go build ./cmd/...` runs at the repo root
+/docsite
+/demo
 
 # Demo artifacts (cmd/demo writes here)
 output/
