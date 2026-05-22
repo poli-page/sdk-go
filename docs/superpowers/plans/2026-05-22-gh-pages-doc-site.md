@@ -1593,18 +1593,28 @@ Expected: `build_type` is `workflow` (current state, established earlier in the 
 
 - [ ] **Step 2: Switch to legacy/branch mode**
 
-Run:
+Run (use the JSON form — `-f source.branch=...` flat-form does NOT nest correctly into the `source` object):
 
 ```bash
-gh api -X PUT repos/poli-page/sdk-go/pages \
-  -f source.branch=gh-pages \
-  -f source.path=/ \
-  -f build_type=legacy
+gh api -X PUT repos/poli-page/sdk-go/pages --input - <<'EOF'
+{
+  "source": {"branch": "gh-pages", "path": "/"},
+  "build_type": "legacy"
+}
+EOF
 ```
 
 Expected: returns the updated Pages config with `build_type: legacy`, `source.branch: gh-pages`.
 
 If `gh-pages` does not yet exist as a remote branch, this call may fail. In that case, push a single commit to `gh-pages` first (the workflow's "Make sure gh-pages exists locally" step does this on its first run too) and retry.
+
+After the settings change, Pages does NOT auto-rebuild. Trigger the first build explicitly:
+
+```bash
+gh api -X POST repos/poli-page/sdk-go/pages/builds
+```
+
+Then poll `gh api repos/poli-page/sdk-go/pages/builds/latest --jq '.status'` until it shows `built` (typically <60s).
 
 - [ ] **Step 3: Re-verify**
 
