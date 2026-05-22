@@ -33,8 +33,9 @@ func Split(readme []byte) (SplitResult, error) {
 			flush()
 			title := strings.TrimSpace(strings.TrimPrefix(line, "## "))
 			cur = &Page{
-				Slug:  slug(title),
-				Title: title,
+				Slug:    slug(title),
+				Title:   title,
+				Content: "# " + title + "\n",
 			}
 			continue
 		}

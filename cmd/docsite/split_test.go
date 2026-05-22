@@ -76,6 +76,21 @@ errors body
 	}
 }
 
+func TestSplit_H2DemotedToH1(t *testing.T) {
+	in := "## Install\n\nbody\n"
+	res, err := Split([]byte(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Pages) != 1 {
+		t.Fatalf("want 1 page, got %d", len(res.Pages))
+	}
+	want := "# Install\n\nbody\n"
+	if res.Pages[0].Content != want {
+		t.Errorf("page content = %q, want %q", res.Pages[0].Content, want)
+	}
+}
+
 func TestSplit_PageContentEndsWithSingleNewline(t *testing.T) {
 	in := "# Title\n\nintro\n\n## A\n\nbody A\n\n\n## B\n\nbody B\n"
 	res, err := Split([]byte(in))
