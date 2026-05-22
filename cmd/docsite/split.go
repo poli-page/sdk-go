@@ -18,22 +18,36 @@ type SplitResult struct {
 
 func Split(readme []byte) (SplitResult, error) {
 	lines := strings.SplitAfter(string(readme), "\n")
-	var preambleLines []string
+	var preamble bytes.Buffer
+	var pages []Page
+	var cur *Page
+	flush := func() {
+		if cur != nil {
+			pages = append(pages, *cur)
+			cur = nil
+		}
+	}
 	for _, line := range lines {
 		if strings.HasPrefix(line, "## ") {
-			break
+			flush()
+			title := strings.TrimSpace(strings.TrimPrefix(line, "## "))
+			cur = &Page{
+				Slug:  slug(title),
+				Title: title,
+			}
+			continue
 		}
-		preambleLines = append(preambleLines, line)
+		if cur != nil {
+			cur.Content += line
+		} else {
+			preamble.WriteString(line)
+		}
 	}
-	// Drop trailing blank lines that precede the first ## heading.
-	for len(preambleLines) > 0 && strings.TrimRight(preambleLines[len(preambleLines)-1], "\n") == "" {
-		preambleLines = preambleLines[:len(preambleLines)-1]
-	}
-	var preamble bytes.Buffer
-	for _, line := range preambleLines {
-		preamble.WriteString(line)
-	}
+	flush()
+	// Drop trailing blank lines from the preamble so it ends with exactly one \n.
+	preambleStr := strings.TrimRight(preamble.String(), "\n") + "\n"
 	return SplitResult{
-		Index: Page{Slug: "index", Content: preamble.String()},
+		Index: Page{Slug: "index", Content: preambleStr},
+		Pages: pages,
 	}, nil
 }
