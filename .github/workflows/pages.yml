@@ -1,0 +1,93 @@
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version label (e.g. v0.2.0 or dev)"
+        required: true
+      alias:
+        description: "Optional alias to update (e.g. latest)"
+        required: false
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git for mike
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Make sure gh-pages exists locally (mike needs it)
+        run: |
+          git fetch origin gh-pages --depth=1 || \
+            (git checkout --orphan gh-pages && git rm -rf . && \
+             git commit --allow-empty -m "chore: initialize gh-pages" && \
+             git push origin gh-pages && git checkout -)
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: docs/requirements.txt
+
+      - name: Install MkDocs + mike
+        run: pip install -r docs/requirements.txt
+
+      - name: Generate site sources
+        run: go run ./cmd/docsite
+
+      - name: Deploy with mike
+        env:
+          REF: ${{ github.ref }}
+          EVENT: ${{ github.event_name }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          INPUT_ALIAS:   ${{ github.event.inputs.alias }}
+        run: |
+          set -euo pipefail
+          CFG=build/mkdocs.yml
+
+          case "$EVENT" in
+            workflow_dispatch)
+              if [ -n "${INPUT_ALIAS}" ]; then
+                mike deploy --config-file "$CFG" --push --update-aliases "$INPUT_VERSION" "$INPUT_ALIAS"
+              else
+                mike deploy --config-file "$CFG" --push "$INPUT_VERSION"
+              fi
+              ;;
+            push)
+              if [[ "$REF" == refs/tags/v*.*.* ]]; then
+                TAG="${REF#refs/tags/}"
+                mike deploy --config-file "$CFG" --push --update-aliases "$TAG" latest
+                mike set-default --config-file "$CFG" --push latest
+              else
+                mike deploy --config-file "$CFG" --push dev
+                # If no other versions exist yet (first run before any tag),
+                # make sure the root URL serves something instead of 404.
+                if [ "$(mike list --config-file "$CFG" | wc -l)" = "1" ]; then
+                  mike set-default --config-file "$CFG" --push dev
+                fi
+              fi
+              ;;
+          esac
