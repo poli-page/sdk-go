@@ -45,9 +45,9 @@ func TestParseGroups_RejectsMalformed(t *testing.T) {
 
 func TestValidateGroups_OrphanH2(t *testing.T) {
 	pages := []Page{
-		{Title: "Install"},
-		{Title: "Quick start"},
-		{Title: "Forgot me"}, // not in groups
+		{Slug: "install", Title: "Install"},
+		{Slug: "quick-start", Title: "Quick start"},
+		{Slug: "forgot-me", Title: "Forgot me"}, // not in groups
 	}
 	groups := []Group{
 		{Name: "Getting started", Sections: []string{"Install", "Quick start"}},
@@ -60,7 +60,7 @@ func TestValidateGroups_OrphanH2(t *testing.T) {
 
 func TestValidateGroups_OrphanGroupEntry(t *testing.T) {
 	pages := []Page{
-		{Title: "Install"},
+		{Slug: "install", Title: "Install"},
 	}
 	groups := []Group{
 		{Name: "Getting started", Sections: []string{"Install", "Removed section"}},
@@ -71,10 +71,24 @@ func TestValidateGroups_OrphanGroupEntry(t *testing.T) {
 	}
 }
 
+func TestValidateGroups_SlugCollision(t *testing.T) {
+	pages := []Page{
+		{Slug: "errors", Title: "Errors"},
+		{Slug: "errors", Title: "ERRORS"}, // would slug() down to the same thing in practice
+	}
+	groups := []Group{
+		{Name: "x", Sections: []string{"Errors", "ERRORS"}},
+	}
+	err := ValidateGroups(pages, groups)
+	if err == nil || !strings.Contains(err.Error(), "collision") {
+		t.Errorf("expected slug collision error, got %v", err)
+	}
+}
+
 func TestValidateGroups_AllAligned(t *testing.T) {
 	pages := []Page{
-		{Title: "Install"},
-		{Title: "Quick start"},
+		{Slug: "install", Title: "Install"},
+		{Slug: "quick-start", Title: "Quick start"},
 	}
 	groups := []Group{
 		{Name: "Getting started", Sections: []string{"Install", "Quick start"}},

@@ -83,6 +83,13 @@ func validateGroup(g Group) error {
 // section name corresponds to a real page. Returns a single error listing all
 // mismatches so the maintainer fixes them in one pass.
 func ValidateGroups(pages []Page, groups []Group) error {
+	slugSeen := make(map[string]string, len(pages))
+	for _, p := range pages {
+		if prev, ok := slugSeen[p.Slug]; ok {
+			return fmt.Errorf("slug collision: %q and %q both map to %q", prev, p.Title, p.Slug)
+		}
+		slugSeen[p.Slug] = p.Title
+	}
 	pageTitles := make(map[string]bool, len(pages))
 	for _, p := range pages {
 		pageTitles[p.Title] = true

@@ -15,8 +15,6 @@ on:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
@@ -85,7 +83,7 @@ jobs:
                 mike deploy --config-file "$CFG" --push dev
                 # If no other versions exist yet (first run before any tag),
                 # make sure the root URL serves something instead of 404.
-                if [ "$(mike list --config-file "$CFG" | wc -l)" = "1" ]; then
+                if [ "$(mike list --config-file "$CFG" | grep -c .)" = "1" ]; then
                   mike set-default --config-file "$CFG" --push dev
                 fi
               fi

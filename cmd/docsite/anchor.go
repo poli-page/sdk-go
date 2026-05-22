@@ -13,7 +13,6 @@ func RewriteAnchors(index *Page, pages []Page) {
 	known := make(map[string]string, len(pages))
 	for _, p := range pages {
 		known[p.Slug] = p.Slug
-		known[slug(p.Title)] = p.Slug
 	}
 	rewrite := func(content string) string {
 		return linkRE.ReplaceAllStringFunc(content, func(match string) string {
