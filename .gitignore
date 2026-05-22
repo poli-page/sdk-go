@@ -45,10 +45,10 @@ output/
 # Shared project config can still live in .claude/settings.json.
 .claude/settings.local.json
 
-# Private agent guide — references internal platform-repo paths + team
-# names. Kept under .claude/ so Claude Code sessions can still open it
-# manually, but never published to the public sdk-go repo.
-.claude/CLAUDE.md
+# Private agent guide — kept at repo root so Claude Code auto-loads it
+# on session start, but gitignored so it never enters a commit. The
+# content references internal platform-repo paths + team names that do
+# not belong on the public sdk-go repo.
 CLAUDE.md
 
 # Local SDK handoff docs from the platform repo (poli-page/poli-page).
