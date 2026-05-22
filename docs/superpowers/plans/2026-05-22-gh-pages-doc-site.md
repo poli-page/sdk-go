@@ -1234,11 +1234,11 @@ func TestEndToEnd_RealReadme(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read out dir: %v", err)
 	}
-	// 17 H2s in README + 1 index = 18 files. If this assertion fires,
+	// 16 H2s in README + 1 index = 17 files. If this assertion fires,
 	// update the README, groups.yml, or both — the spec says the number
 	// of pages is the number of H2s plus index.
-	if len(entries) != 18 {
-		t.Errorf("got %d pages, want 18 (17 H2s + index)", len(entries))
+	if len(entries) != 17 {
+		t.Errorf("got %d pages, want 17 (16 H2s + index)", len(entries))
 	}
 }
 ```
@@ -1308,7 +1308,7 @@ groups:
 - [ ] **Step 2: Confirm structure with a sanity command**
 
 Run: `grep -c '^      - ' docs/groups.yml`
-Expected: `17` — matches the count of H2s in the README.
+Expected: `16` — matches the count of H2s in the README.
 
 - [ ] **Step 3: Commit (do not run the end-to-end real-README test yet — base config still missing)**
 
@@ -1382,7 +1382,7 @@ Note: `docs_dir: site` tells MkDocs to look in `build/site/` (relative to wherev
 - [ ] **Step 2: Run the real-README end-to-end test**
 
 Run: `go test ./cmd/docsite/ -run TestEndToEnd_RealReadme -v`
-Expected: PASS. 18 pages generated (17 H2s + index).
+Expected: PASS. 17 pages generated (16 H2s + index).
 
 - [ ] **Step 3: Run full suite + lint**
 
@@ -1447,7 +1447,7 @@ Expected: one line matching the entry.
 - [ ] **Step 4: Smoke-test the splitter end-to-end against the real layout**
 
 Run: `go run ./cmd/docsite && ls build/site | wc -l && head -30 build/mkdocs.yml`
-Expected: `18` files in `build/site`, `mkdocs.yml` shows site_name / theme / nav block.
+Expected: `17` files in `build/site`, `mkdocs.yml` shows site_name / theme / nav block.
 
 - [ ] **Step 5: Verify build/ is now ignored**
 
@@ -1631,7 +1631,7 @@ Run end-to-end before declaring done:
 
 - [ ] `go test -race ./...` — all green.
 - [ ] `go vet ./... && gofmt -l . && golangci-lint run ./...` — all clean.
-- [ ] `go run ./cmd/docsite` writes 18 files in `build/site/` and `build/mkdocs.yml`.
+- [ ] `go run ./cmd/docsite` writes 17 files in `build/site/` and `build/mkdocs.yml`.
 - [ ] `mkdocs serve -f build/mkdocs.yml` renders the site locally (optional — requires `pip install -r docs/requirements.txt` locally).
 - [ ] CI green on the PR.
 - [ ] `https://poli-page.github.io/sdk-go/` returns 200 with the Home page.

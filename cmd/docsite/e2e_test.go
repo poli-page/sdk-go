@@ -54,10 +54,10 @@ func TestEndToEnd_RealReadme(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read out dir: %v", err)
 	}
-	// 17 H2s in README + 1 index = 18 files. If this assertion fires,
+	// 16 H2s in README + 1 index = 17 files. If this assertion fires,
 	// update the README, groups.yml, or both — the spec says the number
 	// of pages is the number of H2s plus index.
-	if len(entries) != 18 {
-		t.Errorf("got %d pages, want 18 (17 H2s + index)", len(entries))
+	if len(entries) != 17 {
+		t.Errorf("got %d pages, want 17 (16 H2s + index)", len(entries))
 	}
 }
