@@ -1,3 +1,5 @@
+// Package main implements the docsite CLI, which splits README.md into
+// per-H2 MkDocs pages and generates a merged mkdocs.yml nav.
 package main
 
 import "strings"

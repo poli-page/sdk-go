@@ -14,6 +14,7 @@ func TestSlug(t *testing.T) {
 		{"Working with stored documents", "working-with-stored-documents"},
 		{"  Trim me  ", "trim-me"},
 		{"Multiple   spaces", "multiple-spaces"},
+		{"", ""},
 	}
 	for _, c := range cases {
 		got := slug(c.in)
