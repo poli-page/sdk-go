@@ -35,10 +35,15 @@ jobs:
 
       - name: Make sure gh-pages exists locally (mike needs it)
         run: |
-          git fetch origin gh-pages --depth=1 || \
-            (git checkout --orphan gh-pages && git rm -rf . && \
-             git commit --allow-empty -m "chore: initialize gh-pages" && \
-             git push origin gh-pages && git checkout -)
+          set -euo pipefail
+          if ! git fetch origin gh-pages --depth=1; then
+            PREV=$(git rev-parse HEAD)
+            git checkout --orphan gh-pages
+            git rm -rf .
+            git commit --allow-empty -m "chore: initialize gh-pages"
+            git push origin gh-pages
+            git checkout "$PREV" --
+          fi
 
       - uses: actions/setup-go@v5
         with:
