@@ -1,0 +1,71 @@
+---
+title: Cancellation
+description: How to cancel in-flight requests with context.Context.
+---
+
+Every render and document method takes a `context.Context` as the first argument. Cancelling the context (or letting its deadline elapse) cancels the underlying HTTP request; the SDK returns a `*polipage.Error` whose `Code` matches `polipage.ErrCodeAborted` (or `ErrCodeTimeout` for deadline exceeded).
+
+## Pass a cancellable context
+
+```go
+ctx, cancel := context.WithCancel(context.Background())
+defer cancel()
+
+go func() {
+	time.Sleep(5 * time.Second)
+	cancel()
+}()
+
+pdf, err := client.Render.PDF(ctx, polipage.ProjectModeInput{
+	Project:  "billing",
+	Template: "invoice",
+	Data:     map[string]any{"invoiceNumber": "INV-001"},
+})
+if errors.Is(err, polipage.ErrAborted) {
+	log.Println("cancelled")
+}
+_ = pdf
+```
+
+## Cancellation vs timeout
+
+`option.WithTimeout` only applies when the caller's context has no deadline of its own — the SDK wraps the call in `context.WithTimeout` to enforce a fallback. If you pass a context with a deadline, that deadline always wins.
+
+`ErrAborted` (caller cancellation) is **never retried**. The SDK assumes you meant it.
+
+## Example
+
+```go
+package main
+
+import (
+	"context"
+	"errors"
+	"log"
+	"os"
+	"time"
+
+	"github.com/poli-page/sdk-go"
+	"github.com/poli-page/sdk-go/option"
+)
+
+func main() {
+	client := polipage.NewClient(option.WithAPIKey(os.Getenv("POLI_PAGE_API_KEY")))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_, err := client.Render.PDF(ctx, polipage.ProjectModeInput{
+		Project:  "billing",
+		Template: "invoice",
+		Data:     map[string]any{"invoiceNumber": "INV-001"},
+	})
+	if errors.Is(err, polipage.ErrTimeout) {
+		log.Println("timeout")
+	}
+}
+```
+
+## See also
+- [Configuration](../../concepts/configuration/)
+- [Errors](../errors/)

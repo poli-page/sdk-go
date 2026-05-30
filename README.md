@@ -378,6 +378,7 @@ Go 1.25 or later. The SDK has **zero runtime dependencies** — only the Go stan
 
 ## Documentation & support
 
+- Go SDK docs: [poli-page.github.io/sdk-go/](https://poli-page.github.io/sdk-go/)
 - Platform docs: [docs.poli.page](https://docs.poli.page)
 - SDK API reference: [pkg.go.dev/github.com/poli-page/sdk-go](https://pkg.go.dev/github.com/poli-page/sdk-go)
 - Sign up & generate API keys: [app.poli.page](https://app.poli.page)

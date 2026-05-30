@@ -1,0 +1,88 @@
+---
+title: Quick start
+description: Render your first PDF with the Poli Page Go SDK in under 30 seconds.
+---
+
+import ApiKeyCallout from '@preset/components/ApiKeyCallout.astro';
+
+This page walks through your first render — from key to PDF bytes — without touching the dashboard.
+
+<ApiKeyCallout />
+
+## Set your API key
+
+Export your key into the environment your program runs in:
+
+```bash
+export POLI_PAGE_API_KEY=pp_test_...
+```
+
+## Render a PDF
+
+```go
+package main
+
+import (
+	"context"
+	"os"
+
+	"github.com/poli-page/sdk-go"
+	"github.com/poli-page/sdk-go/option"
+)
+
+func main() {
+	client := polipage.NewClient(
+		option.WithAPIKey(os.Getenv("POLI_PAGE_API_KEY")),
+	)
+
+	pdf, err := client.Render.PDF(context.Background(), polipage.ProjectModeInput{
+		Project:  "billing",
+		Template: "invoice",
+		Data:     map[string]any{"invoiceNumber": "INV-001", "total": 1280},
+	})
+	if err != nil {
+		panic(err)
+	}
+	_ = pdf // []byte — write to disk, return from a handler, upload to object storage.
+}
+```
+
+`pdf` is a `[]byte`. Write it to disk, stream it to S3, or return it directly from an HTTP handler.
+
+## Example
+
+```go
+package main
+
+import (
+	"context"
+	"os"
+
+	"github.com/poli-page/sdk-go"
+	"github.com/poli-page/sdk-go/option"
+)
+
+func main() {
+	client := polipage.NewClient(
+		option.WithAPIKey(os.Getenv("POLI_PAGE_API_KEY")),
+	)
+
+	if err := polipage.RenderToFile(
+		context.Background(),
+		client,
+		polipage.ProjectModeInput{
+			Project:  "billing",
+			Template: "invoice",
+			Data:     map[string]any{"invoiceNumber": "INV-001", "total": 1280},
+		},
+		"./invoices/INV-001.pdf",
+	); err != nil {
+		panic(err)
+	}
+}
+```
+
+## See also
+- [Authentication](../../concepts/authentication/)
+- [Render modes](../../concepts/render-modes/)
+- [Output handling](../../concepts/output-handling/)
