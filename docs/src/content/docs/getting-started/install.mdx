@@ -1,0 +1,41 @@
+---
+title: Install
+description: How to install the Poli Page Go SDK with go get and its module path.
+---
+
+The Poli Page Go SDK ships as the Go module `github.com/poli-page/sdk-go`. It requires Go 1.25 or later and depends only on the standard library.
+
+## Add the module
+
+```bash
+go get github.com/poli-page/sdk-go@latest
+```
+
+The constructor lives in the top-level `polipage` package; functional options live in the `option` subpackage.
+
+## Go version
+
+The SDK targets Go 1.25 and tracks the language's own support window (the latest two minors). See [runtime support](../../reference/runtime-support/) for the full matrix.
+
+## Example
+
+```go
+package main
+
+import (
+	"os"
+
+	"github.com/poli-page/sdk-go"
+	"github.com/poli-page/sdk-go/option"
+)
+
+func main() {
+	_ = polipage.NewClient(
+		option.WithAPIKey(os.Getenv("POLI_PAGE_API_KEY")),
+	)
+}
+```
+
+## See also
+- [Quick start](../quick-start/)
+- [Configuration](../../concepts/configuration/)

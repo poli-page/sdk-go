@@ -1,0 +1,103 @@
+---
+title: Output handling
+description: Receive PDF bytes in memory, as an io.ReadCloser, written to disk, or stored server-side.
+---
+
+The Go SDK gives you four ways to handle a rendered PDF: in-memory `[]byte`, a streaming `io.ReadCloser`, a write-to-disk helper, or a stored document on the server. Pick the one that matches how your code consumes the output.
+
+## In-memory (`Render.PDF`)
+
+```go
+pdf, err := client.Render.PDF(ctx, polipage.ProjectModeInput{
+	Project:  "billing",
+	Template: "invoice",
+	Data:     map[string]any{"invoiceNumber": "INV-001"},
+})
+// pdf: []byte — write, upload, return as-is.
+```
+
+Best for documents that fit comfortably in process memory.
+
+## Streaming (`Render.PDFStream`)
+
+For large PDFs or piping straight to an HTTP response or object store, use `Render.PDFStream` and let the SDK keep memory bounded. The caller MUST close the returned `io.ReadCloser`.
+
+```go
+body, err := client.Render.PDFStream(ctx, polipage.ProjectModeInput{
+	Project:  "billing",
+	Template: "invoice",
+	Data:     map[string]any{"invoiceNumber": "INV-001"},
+})
+if err != nil {
+	return err
+}
+defer body.Close()
+// io.Copy(w, body) — pipe to an HTTP response, an S3 upload, or any io.Writer.
+```
+
+## Write to file (`RenderToFile`)
+
+The top-level `RenderToFile` helper streams bytes directly to disk with bounded memory. Parent directories are created automatically.
+
+```go
+err := polipage.RenderToFile(
+	ctx,
+	client,
+	polipage.ProjectModeInput{Project: "billing", Template: "invoice", Data: map[string]any{}},
+	"./out.pdf",
+)
+```
+
+## Server-side storage (`Render.Document`)
+
+When you want the PDF to live on Poli Page's servers (for later download, preview, or thumbnails), use `Render.Document`. It returns a `*DocumentDescriptor` with `DocumentID`, `PresignedPDFURL`, and a `DownloadPDF` method.
+
+```go
+doc, err := client.Render.Document(ctx, polipage.ProjectModeInput{
+	Project:  "billing",
+	Template: "invoice",
+	Data:     map[string]any{"invoiceNumber": "INV-001"},
+})
+if err != nil {
+	return err
+}
+pdf, err := doc.DownloadPDF(ctx)
+```
+
+`PresignedPDFURL` has a 15-minute TTL. If it expires, call `client.Documents.Get(ctx, documentID)` to refresh.
+
+## Example
+
+```go
+package main
+
+import (
+	"context"
+	"os"
+
+	"github.com/poli-page/sdk-go"
+	"github.com/poli-page/sdk-go/option"
+)
+
+func main() {
+	ctx := context.Background()
+	client := polipage.NewClient(option.WithAPIKey(os.Getenv("POLI_PAGE_API_KEY")))
+
+	if err := polipage.RenderToFile(
+		ctx,
+		client,
+		polipage.ProjectModeInput{
+			Project:  "billing",
+			Template: "invoice",
+			Data:     map[string]any{"invoiceNumber": "INV-001", "total": 1280},
+		},
+		"./invoices/INV-001.pdf",
+	); err != nil {
+		panic(err)
+	}
+}
+```
+
+## See also
+- [Cancellation](../../production/cancellation/)
+- [Retries and idempotency](../../production/retries-and-idempotency/)

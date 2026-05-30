@@ -1,0 +1,55 @@
+---
+title: Configuration
+description: Per-client and per-call functional options for timeouts, retries, and observability hooks.
+---
+
+`NewClient` accepts a variadic list of `option.RequestOption` values. The same option type is reused for per-call overrides on every render and document method — pass options as the last argument to override the client-wide value for that call.
+
+## Construction-time options
+
+- `option.WithAPIKey(key)` (required) — your `pp_test_` or `pp_live_` key.
+- `option.WithBaseURL(url)` — override the API endpoint. Defaults to `https://api.poli.page`.
+- `option.WithTimeout(d)` — per-request fallback deadline. Applied when the caller's `context.Context` has no deadline of its own. Defaults to `60s`.
+- `option.WithMaxRetries(n)` — retry budget on top of the initial attempt. Defaults to `2` (three attempts total).
+- `option.WithRetryDelay(d)` — base exponential-backoff delay. Defaults to `500ms`.
+- `option.WithHTTPClient(c)` — inject a custom `*http.Client` (proxies, TLS pinning, recording).
+- `option.WithLogger(l)` — wire a `*slog.Logger` for debug/warn/error lines.
+- `option.WithOnRetry(fn)` / `option.WithOnError(fn)` — observability hooks. Fire-and-forget; panics are recovered.
+- `option.WithHeader(key, value)` — attach a custom header to every request.
+
+## Per-call overrides
+
+- `option.WithIdempotencyKey(key)` — override the SDK-generated UUID v4 `Idempotency-Key`.
+- `option.WithRequestTimeout(d)` — override the per-request timeout for a single call.
+- `option.WithHeader(key, value)` — add or override a header for one call only.
+
+## Example
+
+```go
+package main
+
+import (
+	"log/slog"
+	"os"
+	"time"
+
+	"github.com/poli-page/sdk-go"
+	"github.com/poli-page/sdk-go/option"
+)
+
+func main() {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	_ = polipage.NewClient(
+		option.WithAPIKey(os.Getenv("POLI_PAGE_API_KEY")),
+		option.WithTimeout(30*time.Second),
+		option.WithMaxRetries(3),
+		option.WithRetryDelay(250*time.Millisecond),
+		option.WithLogger(logger),
+	)
+}
+```
+
+## See also
+- [Authentication](../authentication/)
+- [Observability](../../production/observability/)
+- [Retries and idempotency](../../production/retries-and-idempotency/)

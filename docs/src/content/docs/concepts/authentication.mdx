@@ -1,0 +1,61 @@
+---
+title: Authentication
+description: How the Poli Page Go SDK authenticates with the API using test or live keys.
+---
+
+import ApiKeyCallout from '@preset/components/ApiKeyCallout.astro';
+
+The Poli Page Go SDK authenticates every request with a bearer token. The key prefix determines which environment the request hits.
+
+## API keys
+
+<ApiKeyCallout />
+
+Pass the key to `NewClient` via `option.WithAPIKey`:
+
+```go
+client := polipage.NewClient(
+	option.WithAPIKey(os.Getenv("POLI_PAGE_API_KEY")),
+)
+```
+
+The SDK never reads `POLI_PAGE_API_KEY` implicitly. You always pass the key in.
+
+## Custom base URL
+
+To target the develop environment (or a self-hosted gateway), add `option.WithBaseURL`:
+
+```go
+client := polipage.NewClient(
+	option.WithAPIKey(os.Getenv("POLI_PAGE_API_KEY")),
+	option.WithBaseURL("https://api-develop.poli.page"),
+)
+```
+
+## Example
+
+```go
+package main
+
+import (
+	"os"
+
+	"github.com/poli-page/sdk-go"
+	"github.com/poli-page/sdk-go/option"
+)
+
+func main() {
+	baseURL := os.Getenv("POLI_PAGE_BASE_URL")
+	if baseURL == "" {
+		baseURL = "https://api.poli.page"
+	}
+	_ = polipage.NewClient(
+		option.WithAPIKey(os.Getenv("POLI_PAGE_API_KEY")),
+		option.WithBaseURL(baseURL),
+	)
+}
+```
+
+## See also
+- [Configuration](../configuration/)
+- [Errors](../../production/errors/)

@@ -1,0 +1,59 @@
+---
+title: Observability
+description: Hooks and slog integration for logging requests, retries, and errors without coupling to a logger.
+---
+
+The Go SDK exposes a `*slog.Logger` integration plus two callback hooks on `NewClient`: `option.WithOnRetry` and `option.WithOnError`. Together they give you the raw signal needed to instrument the SDK with whatever logger or tracing library you use, without baking a dependency into the SDK itself.
+
+## Logger
+
+Pass any `*slog.Logger` via `option.WithLogger`. The SDK emits:
+
+- One `DEBUG` line per HTTP attempt (`method`, `url`, `attempt`).
+- One `WARN` line per retry.
+- One `ERROR` line per terminal failure.
+
+The default logger is `slog.New(slog.DiscardHandler{})` — silent. Wire your own to see traffic.
+
+## Hooks
+
+- `option.WithOnRetry(func(polipage.RetryEvent))` — fires before each retry sleep. `Attempt`, `DelayMs`, `Reason` (the `*Error` that triggered the retry).
+- `option.WithOnError(func(error))` — fires once at terminal failure (retries exhausted, non-retryable error, or cancellation).
+
+Hooks are fire-and-forget. Panics inside hooks are recovered.
+
+## Tracing
+
+For OpenTelemetry, inject a custom `*http.Client` via `option.WithHTTPClient(c)` whose transport wraps `otelhttp.NewTransport`. That gives you a span per HTTP attempt, with the SDK's `User-Agent` and `x-request-id` headers visible to your tracer.
+
+## Example
+
+```go
+package main
+
+import (
+	"log/slog"
+	"os"
+
+	"github.com/poli-page/sdk-go"
+	"github.com/poli-page/sdk-go/option"
+)
+
+func main() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	_ = polipage.NewClient(
+		option.WithAPIKey(os.Getenv("POLI_PAGE_API_KEY")),
+		option.WithLogger(logger),
+		option.WithOnRetry(func(e polipage.RetryEvent) {
+			logger.Warn("polipage retry", "attempt", e.Attempt, "delay_ms", e.DelayMs)
+		}),
+		option.WithOnError(func(err error) {
+			logger.Error("polipage failure", "err", err.Error())
+		}),
+	)
+}
+```
+
+## See also
+- [Configuration](../../concepts/configuration/)
+- [Errors](../errors/)

@@ -1,0 +1,90 @@
+---
+title: Errors
+description: How the Poli Page Go SDK surfaces failures and how to handle each error code.
+---
+
+import ErrorTable from '@preset/components/ErrorTable.astro';
+
+Every failure returned by the SDK is a `*polipage.Error`. Use `errors.As` to extract typed fields and `errors.Is` against the package-level sentinels (`ErrNotFound`, `ErrUnauthorized`, …) for quick branching.
+
+## The error type
+
+```go
+var perr *polipage.Error
+if errors.As(err, &perr) {
+	fmt.Println(perr.Code, perr.StatusCode, perr.RequestID, perr.Message)
+}
+```
+
+`*Error` implements `Unwrap`, so `errors.Unwrap(err)` gives you the underlying I/O / context cause when present.
+
+## SDK-internal codes
+
+These originate inside the SDK before any HTTP call (or in response to a network-layer failure). They are lowercase.
+
+<ErrorTable errors={[
+  { code: 'invalid_options', when: 'The options passed to NewClient (or a per-call WithX option) are invalid.', recovery: 'Fix the call site. Surfaced on the first method call.' },
+  { code: 'network_error', when: 'TCP/TLS-layer failure reaching the API.', recovery: 'Automatically retried up to WithMaxRetries times.' },
+  { code: 'timeout', when: 'The request did not complete within the configured WithTimeout.', recovery: 'Automatically retried up to WithMaxRetries times. Raise WithTimeout if it keeps tripping.' },
+  { code: 'aborted', when: 'The caller-supplied context was cancelled.', recovery: 'Not retryable. Surface to the caller.' },
+  { code: 'io_failed', when: 'A local filesystem write failed inside RenderToFile.', recovery: 'Fix the path / permissions. Unwrap to inspect the os error.' },
+  { code: 'DOWNLOAD_FAILED', when: 'Fetching a presigned PDF URL failed (TTL expired, network error).', recovery: 'Call Documents.Get to refresh the presigned URL and retry.' },
+]} />
+
+## API codes
+
+Returned by the Poli Page API. Uppercase, snake-case. The SDK forwards the code verbatim.
+
+<ErrorTable errors={[
+  { code: 'INVALID_API_KEY', when: 'The API key is malformed or revoked.', recovery: 'Rotate the key in the dashboard.' },
+  { code: 'MISSING_API_KEY', when: 'No API key was provided in the request.', recovery: 'Check WithAPIKey was supplied to NewClient.' },
+  { code: 'NOT_FOUND', when: 'The project/template slug or documentId does not exist.', recovery: 'Verify the slug/id; check the template is published in this environment.' },
+  { code: 'VALIDATION_ERROR', when: 'The Data map does not satisfy the template schema.', recovery: 'Inspect the template schema in the dashboard.' },
+  { code: 'MISSING_DATA', when: 'The request body lacks a required Data field.', recovery: 'Pass a non-nil Data on every render call (empty map is fine).' },
+  { code: 'QUOTA_EXCEEDED', when: 'You exceeded the per-key rate limit or monthly quota.', recovery: 'Automatically retried; bump tier for sustained higher throughput.' },
+  { code: 'PAYMENT_REQUIRED', when: 'The organization`s billing is past due.', recovery: 'Update the payment method in the dashboard.' },
+  { code: 'INTERNAL_ERROR', when: 'The API returned 5xx.', recovery: 'Automatically retried; contact support if it persists.' },
+]} />
+
+The full list of API codes lives in [the reference](../../reference/errors/).
+
+## Example
+
+```go
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+
+	"github.com/poli-page/sdk-go"
+	"github.com/poli-page/sdk-go/option"
+)
+
+func main() {
+	client := polipage.NewClient(option.WithAPIKey(os.Getenv("POLI_PAGE_API_KEY")))
+
+	_, err := client.Render.PDF(context.Background(), polipage.ProjectModeInput{
+		Project:  "billing",
+		Template: "invoice",
+		Data:     map[string]any{"invoiceNumber": "INV-001"},
+	})
+	if errors.Is(err, polipage.ErrRateLimit) {
+		// Custom strategy beyond the SDK's built-in retries.
+		return
+	}
+	if err != nil {
+		var perr *polipage.Error
+		if errors.As(err, &perr) {
+			fmt.Println("request id:", perr.RequestID)
+		}
+		panic(err)
+	}
+}
+```
+
+## See also
+- [Retries and idempotency](../retries-and-idempotency/)
+- [Observability](../observability/)
