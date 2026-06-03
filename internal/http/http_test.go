@@ -202,35 +202,65 @@ func TestParseErrorBody_extractsCodeAndMessage(t *testing.T) {
 	}
 }
 
-func TestParseErrorBody_fallsBackToMessageAsCode(t *testing.T) {
+func TestParseErrorBody_codeStaysUnknownWhenOnlyMessagePresent(t *testing.T) {
 	t.Parallel()
 	code, msg := ParseErrorBody([]byte(`{"message":"something broke"}`), 400)
-	if code != "something broke" || msg != "something broke" {
-		t.Fatalf("ParseErrorBody = (%q, %q), want (something broke, something broke)", code, msg)
+	if code != "unknown_error" || msg != "something broke" {
+		t.Fatalf("ParseErrorBody = (%q, %q), want (unknown_error, something broke)", code, msg)
 	}
 }
 
 func TestParseErrorBody_fallsBackToErrorAsCode(t *testing.T) {
 	t.Parallel()
 	code, msg := ParseErrorBody([]byte(`{"error":"oops"}`), 400)
-	if code != "oops" || msg != "API error (400): oops" {
-		t.Fatalf("ParseErrorBody = (%q, %q), want (oops, API error (400): oops)", code, msg)
+	if code != "oops" || msg != "HTTP 400" {
+		t.Fatalf("ParseErrorBody = (%q, %q), want (oops, HTTP 400)", code, msg)
 	}
 }
 
 func TestParseErrorBody_unknownErrorWhenNoRecognisedFields(t *testing.T) {
 	t.Parallel()
 	code, msg := ParseErrorBody([]byte(`{}`), 400)
-	if code != "unknown_error" || msg != "API error (400): unknown_error" {
-		t.Fatalf("ParseErrorBody = (%q, %q), want (unknown_error, API error (400): unknown_error)", code, msg)
+	if code != "unknown_error" || msg != "HTTP 400" {
+		t.Fatalf("ParseErrorBody = (%q, %q), want (unknown_error, HTTP 400)", code, msg)
 	}
 }
 
 func TestParseErrorBody_internalErrorOnInvalidJSON(t *testing.T) {
 	t.Parallel()
 	code, msg := ParseErrorBody([]byte("not json"), 502)
-	if code != "INTERNAL_ERROR" || msg != "API error 502: response body was not valid JSON" {
-		t.Fatalf("ParseErrorBody = (%q, %q), want (INTERNAL_ERROR, API error 502: response body was not valid JSON)", code, msg)
+	if code != "INTERNAL_ERROR" || msg != "HTTP 502: response body was not valid JSON" {
+		t.Fatalf("ParseErrorBody = (%q, %q), want (INTERNAL_ERROR, HTTP 502: response body was not valid JSON)", code, msg)
+	}
+}
+
+func TestParseErrorBody_usesRFC7807Detail(t *testing.T) {
+	t.Parallel()
+	code, msg := ParseErrorBody(
+		[]byte(`{"code":"authentication_failed","detail":"Forbidden","title":"Authentication failed"}`),
+		401,
+	)
+	if code != "authentication_failed" || msg != "Forbidden" {
+		t.Fatalf("ParseErrorBody = (%q, %q), want (authentication_failed, Forbidden)", code, msg)
+	}
+}
+
+func TestParseErrorBody_fallsBackToTitleWhenDetailAbsent(t *testing.T) {
+	t.Parallel()
+	code, msg := ParseErrorBody([]byte(`{"code":"forbidden","title":"Access denied"}`), 403)
+	if code != "forbidden" || msg != "Access denied" {
+		t.Fatalf("ParseErrorBody = (%q, %q), want (forbidden, Access denied)", code, msg)
+	}
+}
+
+func TestParseErrorBody_noSynthesisedAPIErrorPrefix(t *testing.T) {
+	t.Parallel()
+	_, msg := ParseErrorBody([]byte(`{"code":"THUMBNAILS_NOT_AVAILABLE"}`), 403)
+	if strings.Contains(msg, "API error") {
+		t.Fatalf("ParseErrorBody msg = %q, must not contain 'API error' synthesis", msg)
+	}
+	if msg != "HTTP 403" {
+		t.Fatalf("ParseErrorBody msg = %q, want HTTP 403", msg)
 	}
 }
 

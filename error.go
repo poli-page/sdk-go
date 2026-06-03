@@ -41,6 +41,38 @@ func (e *Error) Error() string {
 // Unwrap exposes the wrapped Cause to errors.Is and errors.As.
 func (e *Error) Unwrap() error { return e.Cause }
 
+// Payload is the canonical wire shape for framework integrations:
+// {code, message, status, requestId}. Status is the API HTTP status for
+// status-bearing failures, 503 for network failures, 504 for timeouts,
+// omitted otherwise.
+type Payload struct {
+	Code      string `json:"code"`
+	Message   string `json:"message"`
+	Status    int    `json:"status,omitempty"`
+	RequestID string `json:"requestId"`
+}
+
+// ToPayload returns the canonical wire payload for framework integrations.
+// The Error.StatusCode field stays 0 for transport failures — only the
+// payload surfaces 503/504, so callers reading StatusCode are not affected.
+func (e *Error) ToPayload() Payload {
+	status := e.StatusCode
+	if status == 0 {
+		switch e.Code {
+		case ErrCodeTimeout:
+			status = 504
+		case ErrCodeNetworkError:
+			status = 503
+		}
+	}
+	return Payload{
+		Code:      e.Code,
+		Message:   e.Message,
+		Status:    status,
+		RequestID: e.RequestID,
+	}
+}
+
 // Is supports errors.Is by matching the receiver against package-level
 // sentinel errors via their Code field. A small number of logical groups
 // (auth: MISSING_API_KEY / INVALID_API_KEY; rate-limit: QUOTA_EXCEEDED /

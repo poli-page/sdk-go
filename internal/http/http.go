@@ -52,24 +52,26 @@ func ComputeBackoff(attempt int, baseDelay, retryAfter time.Duration) time.Durat
 }
 
 // ParseErrorBody parses a non-2xx response body into a (code, message) pair.
-// Follows the fallback chain code → message → error → "unknown_error" from
-// the Node SDK's parseErrorBody (src/internal/http.ts:43). Returns
-// ("INTERNAL_ERROR", "API error <status>: response body was not valid JSON")
-// when the body is not JSON — including empty bodies and HTML error pages.
+//
+// The API speaks RFC 7807 ProblemDetails. Message preference: detail
+// (specific reason) → title (generic problem name) → message (legacy
+// non-7807 endpoints) → short canned "HTTP <status>". Code is verbatim
+// from the API (fallback "unknown_error"); we never invent a code from
+// the message. Bodies that aren't valid JSON objects surface as
+// "INTERNAL_ERROR".
 func ParseErrorBody(body []byte, status int) (code, message string) {
 	var parsed struct {
 		Code    string `json:"code"`
+		Detail  string `json:"detail"`
+		Title   string `json:"title"`
 		Message string `json:"message"`
 		Error   string `json:"error"`
 	}
 	if err := json.Unmarshal(body, &parsed); err != nil {
-		return "INTERNAL_ERROR", fmt.Sprintf("API error %d: response body was not valid JSON", status)
+		return "INTERNAL_ERROR", fmt.Sprintf("HTTP %d: response body was not valid JSON", status)
 	}
-	code = firstNonEmpty(parsed.Code, parsed.Message, parsed.Error, "unknown_error")
-	message = parsed.Message
-	if message == "" {
-		message = fmt.Sprintf("API error (%d): %s", status, code)
-	}
+	code = firstNonEmpty(parsed.Code, parsed.Error, "unknown_error")
+	message = firstNonEmpty(parsed.Detail, parsed.Title, parsed.Message, fmt.Sprintf("HTTP %d", status))
 	return code, message
 }
 
