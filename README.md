@@ -341,7 +341,7 @@ The SDK uses Go's type system to enforce the contract at compile time:
 - Nullable wire fields (`ProjectID`, `Version`, `Orientation`, `Locale`, …) are `*string` to distinguish JSON `null` from empty strings.
 - `Opt[T any](v T) *T` turns a literal into a `*T` for optional fields: `Version: polipage.Opt("1.0.0")`.
 
-## Concurrency
+## Concurrency & thread-safety
 
 `*polipage.Client` is safe for concurrent use. Create **one client per process** and reuse it across goroutines — the underlying `*http.Client` pools connections automatically. The SDK has no async/sync split; goroutines + `context.Context` cover both concurrency and cancellation.
 
