@@ -23,8 +23,12 @@ type Documents struct {
 // returns *Error{Code: ErrCodeDownloadFailed} — re-fetch via Get.
 //
 // Spec §6.1.
-func (d *Documents) Get(ctx context.Context, id string) (*DocumentDescriptor, error) {
-	resp, err := d.client.get(ctx, constants.PathDocument(id), clientconfig.Config{})
+func (d *Documents) Get(ctx context.Context, id string, opts ...option.RequestOption) (*DocumentDescriptor, error) {
+	per, err := resolvePerCall(opts)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := d.client.get(ctx, constants.PathDocument(id), per)
 	if err != nil {
 		return nil, err
 	}

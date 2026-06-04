@@ -10,8 +10,10 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	polipage "github.com/poli-page/sdk-go"
+	"github.com/poli-page/sdk-go/option"
 )
 
 // canonicalDescriptorJSON returns a JSON descriptor body for tests that
@@ -273,5 +275,50 @@ func TestDocuments_Delete_alreadyDeletedReturnsErrGone(t *testing.T) {
 	err := client.Documents.Delete(context.Background(), "doc_abc")
 	if !errors.Is(err, polipage.ErrGone) {
 		t.Fatalf("err = %v, want errors.Is(..., ErrGone)", err)
+	}
+}
+
+func TestDocuments_Get_perCallWithHeaderAttachesHeader(t *testing.T) {
+	t.Parallel()
+	var got string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("X-Trace-Id")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, canonicalDescriptorJSON())
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server)
+	_, err := client.Documents.Get(
+		context.Background(),
+		"doc_abc",
+		option.WithHeader("X-Trace-Id", "trace-get-1"),
+	)
+	if err != nil {
+		t.Fatalf("Get err = %v", err)
+	}
+	if got != "trace-get-1" {
+		t.Errorf("X-Trace-Id = %q, want trace-get-1", got)
+	}
+}
+
+func TestDocuments_Get_perCallWithRequestTimeoutOverridesClient(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-time.After(1 * time.Second):
+		case <-r.Context().Done():
+		}
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server, option.WithMaxRetries(0))
+	_, err := client.Documents.Get(
+		context.Background(),
+		"doc_abc",
+		option.WithRequestTimeout(50*time.Millisecond),
+	)
+	if !errors.Is(err, polipage.ErrTimeout) {
+		t.Fatalf("err = %v, want errors.Is(..., ErrTimeout)", err)
 	}
 }
