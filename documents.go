@@ -59,8 +59,12 @@ func (d *Documents) Get(ctx context.Context, id string, opts ...option.RequestOp
 // Missing or unparseable headers are tolerated: PageCount defaults to 0.
 //
 // Spec §6.2.
-func (d *Documents) Preview(ctx context.Context, id string) (*DocumentPreviewResult, error) {
-	resp, err := d.client.get(ctx, constants.PathDocumentPreview(id), clientconfig.Config{})
+func (d *Documents) Preview(ctx context.Context, id string, opts ...option.RequestOption) (*DocumentPreviewResult, error) {
+	per, err := resolvePerCall(opts)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := d.client.get(ctx, constants.PathDocumentPreview(id), per)
 	if err != nil {
 		return nil, err
 	}

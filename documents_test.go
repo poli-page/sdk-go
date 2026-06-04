@@ -302,6 +302,30 @@ func TestDocuments_Get_perCallWithHeaderAttachesHeader(t *testing.T) {
 	}
 }
 
+func TestDocuments_Preview_perCallWithHeaderAttachesHeader(t *testing.T) {
+	t.Parallel()
+	var got string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("X-Trace-Id")
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = io.WriteString(w, "<p>preview</p>")
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server)
+	_, err := client.Documents.Preview(
+		context.Background(),
+		"doc_abc",
+		option.WithHeader("X-Trace-Id", "trace-prev-1"),
+	)
+	if err != nil {
+		t.Fatalf("Preview err = %v", err)
+	}
+	if got != "trace-prev-1" {
+		t.Errorf("X-Trace-Id = %q, want trace-prev-1", got)
+	}
+}
+
 func TestDocuments_Get_perCallWithRequestTimeoutOverridesClient(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
