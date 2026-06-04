@@ -24,3 +24,22 @@ func TestOpt_returnsPointerToValue(t *testing.T) {
 		t.Fatalf("Opt(\"hello\") = %v, want pointer to \"hello\"", p)
 	}
 }
+
+func TestTypeShape_RequestEvent(t *testing.T) {
+	t.Parallel()
+	var e RequestEvent
+	e.Method = "POST"
+	e.URL = "https://api.poli.page/v1/render"
+	e.Attempt = 1
+	// Compiles iff the three fields exist with the documented types.
+	_ = e
+}
+
+func TestTypeShape_ResponseEvent(t *testing.T) {
+	t.Parallel()
+	var e ResponseEvent
+	e.Status = 200
+	e.RequestID = "req_abc"
+	e.DurationMs = int64(42)
+	_ = e
+}

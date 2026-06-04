@@ -23,6 +23,28 @@ type RetryEvent struct {
 	Reason error
 }
 
+// RequestEvent fires before each HTTP attempt. Re-exported from
+// polipage and option as type aliases so callers can spell it either way.
+type RequestEvent struct {
+	// Method is the HTTP method (GET / POST / DELETE).
+	Method string
+	// URL is the absolute URL the SDK is about to request.
+	URL string
+	// Attempt is 1-based: 1 means the first attempt, 2 the first retry, etc.
+	Attempt int
+}
+
+// ResponseEvent fires once after a 2xx response. Non-2xx outcomes surface
+// through OnRetry (retryable) or OnError (terminal) instead.
+type ResponseEvent struct {
+	// Status is the HTTP status code (always in [200, 300)).
+	Status int
+	// RequestID is the x-request-id header value when present; empty otherwise.
+	RequestID string
+	// DurationMs is the wall-clock time of the HTTP round trip in milliseconds.
+	DurationMs int64
+}
+
 // Config is the resolved client + per-call options. All fields are populated
 // from the Default constructor plus zero or more With* mutators.
 type Config struct {
@@ -35,6 +57,8 @@ type Config struct {
 	Logger     *slog.Logger
 	OnRetry    func(RetryEvent)
 	OnError    func(error)
+	OnRequest  func(RequestEvent)
+	OnResponse func(ResponseEvent)
 
 	// IdempotencyKey is per-call only. Empty in the construction-time Config.
 	IdempotencyKey string
