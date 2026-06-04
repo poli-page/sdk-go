@@ -798,6 +798,38 @@ func TestRender_Preview_onRequestHookFires(t *testing.T) {
 	}
 }
 
+func TestRender_Preview_onRequestFiresPerAttempt(t *testing.T) {
+	t.Parallel()
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := calls.Add(1)
+		if n < 3 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, renderPreviewJSON)
+	}))
+	defer server.Close()
+
+	var attempts []int
+	client := newTestClient(t, server,
+		option.WithMaxRetries(3),
+		option.WithOnRequest(func(e polipage.RequestEvent) {
+			attempts = append(attempts, e.Attempt)
+		}),
+	)
+	_, err := client.Render.Preview(context.Background(), polipage.ProjectModeInput{
+		Project: "x", Template: "y", Data: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("Preview err = %v", err)
+	}
+	if got := attempts; len(got) != 3 || got[0] != 1 || got[1] != 2 || got[2] != 3 {
+		t.Errorf("attempts = %v, want [1 2 3]", got)
+	}
+}
+
 func TestRender_Preview_hookPanicDoesNotBreakRequest(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

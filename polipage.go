@@ -243,6 +243,12 @@ func (c *Client) sendOnce(ctx context.Context, method, path string, bodyBytes []
 		slog.Int("attempt", attempt),
 	)
 
+	c.fireOnRequest(clientconfig.RequestEvent{
+		Method:  method,
+		URL:     url,
+		Attempt: attempt,
+	})
+
 	resp, err := c.cfg.HTTPClient.Do(req)
 	if err != nil {
 		cleanup()
@@ -362,4 +368,13 @@ func (c *Client) fireOnError(err error) {
 	}
 	defer func() { _ = recover() }()
 	c.cfg.OnError(err)
+}
+
+// fireOnRequest invokes the OnRequest hook (if any) with panic recovery.
+func (c *Client) fireOnRequest(e clientconfig.RequestEvent) {
+	if c.cfg.OnRequest == nil {
+		return
+	}
+	defer func() { _ = recover() }()
+	c.cfg.OnRequest(e)
 }
