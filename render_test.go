@@ -830,6 +830,41 @@ func TestRender_Preview_onRequestFiresPerAttempt(t *testing.T) {
 	}
 }
 
+func TestRender_Preview_onResponseHookFires(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Request-Id", "req_xyz")
+		// ~5ms response so DurationMs is non-zero.
+		time.Sleep(5 * time.Millisecond)
+		_, _ = io.WriteString(w, renderPreviewJSON)
+	}))
+	defer server.Close()
+
+	var events []polipage.ResponseEvent
+	client := newTestClient(t, server, option.WithOnResponse(func(e polipage.ResponseEvent) {
+		events = append(events, e)
+	}))
+	_, err := client.Render.Preview(context.Background(), polipage.ProjectModeInput{
+		Project: "x", Template: "y", Data: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("Preview err = %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("OnResponse fired %d times, want 1", len(events))
+	}
+	if events[0].Status != 200 {
+		t.Errorf("event.Status = %d, want 200", events[0].Status)
+	}
+	if events[0].RequestID != "req_xyz" {
+		t.Errorf("event.RequestID = %q, want req_xyz", events[0].RequestID)
+	}
+	if events[0].DurationMs < 1 {
+		t.Errorf("event.DurationMs = %d, want >= 1", events[0].DurationMs)
+	}
+}
+
 func TestRender_Preview_hookPanicDoesNotBreakRequest(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

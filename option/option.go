@@ -130,6 +130,18 @@ func WithOnRequest(fn func(RequestEvent)) RequestOption {
 	}
 }
 
+// WithOnResponse registers a hook that fires once after each successful
+// (2xx) HTTP response with the status, x-request-id header value (empty
+// when absent), and the wall-clock round-trip duration in milliseconds.
+// Non-2xx outcomes surface via OnRetry (retryable) or OnError (terminal)
+// instead. Panics inside the hook are recovered.
+func WithOnResponse(fn func(ResponseEvent)) RequestOption {
+	return func(c *clientconfig.Config) error {
+		c.OnResponse = fn
+		return nil
+	}
+}
+
 // WithIdempotencyKey overrides the auto-generated UUID4 Idempotency-Key
 // header on a POST request. Pass this as the last argument to a render or
 // thumbnails call when the caller has a natural idempotency identifier
