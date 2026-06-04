@@ -24,6 +24,14 @@ type RequestOption func(*clientconfig.Config) error
 // without reaching for polipage.RetryEvent.
 type RetryEvent = clientconfig.RetryEvent
 
+// RequestEvent is re-exported from the underlying [clientconfig.RequestEvent]
+// so callers importing only the option package can spell the hook signature
+// without reaching for polipage.RequestEvent.
+type RequestEvent = clientconfig.RequestEvent
+
+// ResponseEvent is re-exported from the underlying [clientconfig.ResponseEvent].
+type ResponseEvent = clientconfig.ResponseEvent
+
 // WithAPIKey sets the Poli Page API key used in the Authorization header.
 // Required — NewClient surfaces an *Error with Code == "invalid_options"
 // on the first method call if no key was supplied.
@@ -107,6 +115,17 @@ func WithOnRetry(fn func(RetryEvent)) RequestOption {
 func WithOnError(fn func(error)) RequestOption {
 	return func(c *clientconfig.Config) error {
 		c.OnError = fn
+		return nil
+	}
+}
+
+// WithOnRequest registers a hook that fires before each HTTP attempt with
+// the method, absolute URL, and 1-based attempt number. Useful for
+// distributed tracing or per-attempt logging. Panics inside the hook are
+// recovered — hooks never break the request.
+func WithOnRequest(fn func(RequestEvent)) RequestOption {
+	return func(c *clientconfig.Config) error {
+		c.OnRequest = fn
 		return nil
 	}
 }

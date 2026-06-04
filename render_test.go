@@ -766,6 +766,38 @@ func TestRender_Preview_perCallHeaderOverridesConstructionHeader(t *testing.T) {
 	}
 }
 
+func TestRender_Preview_onRequestHookFires(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, renderPreviewJSON)
+	}))
+	defer server.Close()
+
+	var events []polipage.RequestEvent
+	client := newTestClient(t, server, option.WithOnRequest(func(e polipage.RequestEvent) {
+		events = append(events, e)
+	}))
+	_, err := client.Render.Preview(context.Background(), polipage.ProjectModeInput{
+		Project: "x", Template: "y", Data: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("Preview err = %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("OnRequest fired %d times, want 1", len(events))
+	}
+	if events[0].Method != "POST" {
+		t.Errorf("event.Method = %q, want POST", events[0].Method)
+	}
+	if !strings.HasSuffix(events[0].URL, "/v1/render/preview") {
+		t.Errorf("event.URL = %q, want suffix /v1/render/preview", events[0].URL)
+	}
+	if events[0].Attempt != 1 {
+		t.Errorf("event.Attempt = %d, want 1", events[0].Attempt)
+	}
+}
+
 func TestRender_Preview_hookPanicDoesNotBreakRequest(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
