@@ -278,6 +278,29 @@ func TestDocuments_Delete_alreadyDeletedReturnsErrGone(t *testing.T) {
 	}
 }
 
+func TestDocuments_Delete_perCallWithHeaderAttachesHeader(t *testing.T) {
+	t.Parallel()
+	var got string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("X-Trace-Id")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server)
+	err := client.Documents.Delete(
+		context.Background(),
+		"doc_abc",
+		option.WithHeader("X-Trace-Id", "trace-del-1"),
+	)
+	if err != nil {
+		t.Fatalf("Delete err = %v", err)
+	}
+	if got != "trace-del-1" {
+		t.Errorf("X-Trace-Id = %q, want trace-del-1", got)
+	}
+}
+
 func TestDocuments_Get_perCallWithHeaderAttachesHeader(t *testing.T) {
 	t.Parallel()
 	var got string

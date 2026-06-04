@@ -6,7 +6,6 @@ import (
 	"io"
 	"strconv"
 
-	"github.com/poli-page/sdk-go/internal/clientconfig"
 	"github.com/poli-page/sdk-go/internal/constants"
 	"github.com/poli-page/sdk-go/option"
 )
@@ -132,6 +131,10 @@ func (d *Documents) Thumbnails(ctx context.Context, id string, options Thumbnail
 // [ErrGone] (HTTP 410) — use errors.Is to branch on it.
 //
 // Spec §6.4.
-func (d *Documents) Delete(ctx context.Context, id string) error {
-	return d.client.delete(ctx, constants.PathDocument(id), clientconfig.Config{})
+func (d *Documents) Delete(ctx context.Context, id string, opts ...option.RequestOption) error {
+	per, err := resolvePerCall(opts)
+	if err != nil {
+		return err
+	}
+	return d.client.delete(ctx, constants.PathDocument(id), per)
 }
