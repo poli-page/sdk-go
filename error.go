@@ -49,7 +49,7 @@ type Payload struct {
 	Code      string `json:"code"`
 	Message   string `json:"message"`
 	Status    int    `json:"status,omitempty"`
-	RequestID string `json:"requestId"`
+	RequestID string `json:"requestId,omitempty"`
 }
 
 // ToPayload returns the canonical wire payload for framework integrations.

@@ -63,6 +63,22 @@ func TestError_ToPayload_marshalsCamelCaseRequestId(t *testing.T) {
 	}
 }
 
+func TestError_ToPayload_omitsRequestIDWhenEmpty(t *testing.T) {
+	t.Parallel()
+	e := &Error{Code: ErrCodeNetworkError, Message: "dns", RequestID: ""}
+	raw, err := json.Marshal(e.ToPayload())
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var into map[string]any
+	if err := json.Unmarshal(raw, &into); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if _, ok := into["requestId"]; ok {
+		t.Fatalf("expected requestId omitted when empty; got %v", into)
+	}
+}
+
 func TestError_ToPayload_omitsStatusWhenZero(t *testing.T) {
 	t.Parallel()
 	e := &Error{Code: ErrCodeInvalidOptions, Message: "bad"}
