@@ -930,3 +930,43 @@ func TestRender_Preview_hookPanicDoesNotBreakRequest(t *testing.T) {
 		t.Error("Preview returned empty result despite successful response")
 	}
 }
+
+func TestDocumentDescriptor_DownloadPDF_perCallTimeoutFires(t *testing.T) {
+	t.Parallel()
+	mux := http.NewServeMux()
+	var serverURL string
+	mux.HandleFunc("/v1/render", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{
+			"documentId":"d","organizationId":"o","environment":"sandbox",
+			"format":"A4","pageCount":1,"sizeBytes":1,
+			"createdAt":"2026-05-21T10:00:00Z","metadata":{},
+			"presignedPdfUrl":"`+serverURL+`/s3/slow",
+			"expiresAt":"2026-05-21T10:15:00Z"
+		}`)
+	})
+	mux.HandleFunc("/s3/slow", func(w http.ResponseWriter, r *http.Request) {
+		// Slow S3 — 1s response. Per-call WithDownloadTimeout=50ms must fire first.
+		select {
+		case <-time.After(1 * time.Second):
+		case <-r.Context().Done():
+		}
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	serverURL = server.URL
+
+	client := newTestClient(t, server)
+	doc, err := client.Render.Document(context.Background(), polipage.ProjectModeInput{
+		Project: "x", Template: "y", Data: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("Document err = %v", err)
+	}
+
+	_, err = doc.DownloadPDF(context.Background(), option.WithDownloadTimeout(50*time.Millisecond))
+	var pErr *polipage.Error
+	if !errors.As(err, &pErr) || pErr.Code != polipage.ErrCodeDownloadFailed {
+		t.Fatalf("err = %v, want *Error with Code=DOWNLOAD_FAILED", err)
+	}
+}

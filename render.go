@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/poli-page/sdk-go/internal/clientconfig"
 	"github.com/poli-page/sdk-go/internal/constants"
@@ -119,7 +120,7 @@ func (r *Render) PDFStream(ctx context.Context, in ProjectModeInput, opts ...opt
 	if err != nil {
 		return nil, err
 	}
-	return r.client.downloadStream(ctx, doc.PresignedPDFURL)
+	return r.client.downloadStream(ctx, doc.PresignedPDFURL, 0)
 }
 
 // DownloadPDF fetches the PDF bytes from PresignedPDFURL. The URL has a
@@ -129,11 +130,15 @@ func (r *Render) PDFStream(ctx context.Context, in ProjectModeInput, opts ...opt
 //
 // The request is unauthenticated and is not subject to the SDK's retry
 // policy: presigned-URL fetches go directly to S3 (or equivalent).
-func (d *DocumentDescriptor) DownloadPDF(ctx context.Context) ([]byte, error) {
+func (d *DocumentDescriptor) DownloadPDF(ctx context.Context, opts ...option.DownloadOption) ([]byte, error) {
 	if d.client == nil {
 		return nil, &Error{Code: ErrCodeInvalidOptions, Message: "DocumentDescriptor has no client back-reference"}
 	}
-	body, err := d.client.downloadStream(ctx, d.PresignedPDFURL)
+	var dl option.DownloadConfig
+	for _, opt := range opts {
+		opt(&dl)
+	}
+	body, err := d.client.downloadStream(ctx, d.PresignedPDFURL, dl.Timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -147,8 +152,48 @@ func (d *DocumentDescriptor) DownloadPDF(ctx context.Context) ([]byte, error) {
 //
 // The returned body uses the SDK's *http.Client (for TLS, proxy, etc.)
 // but the request itself carries no SDK headers and is NOT subject to
-// the retry loop.
-func (c *Client) downloadStream(ctx context.Context, url string) (io.ReadCloser, error) {
+// the retry loop. When timeout > 0 and the caller's ctx has no deadline,
+// a per-call context.WithTimeout is applied; cancel ownership transfers to
+// the returned body via cancelOnClose so the context is released when the
+// caller closes the body.
+func (c *Client) downloadStream(ctx context.Context, url string, timeout time.Duration) (io.ReadCloser, error) {
+	if timeout > 0 {
+		if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, timeout)
+			// cancel is transferred to the returned body's cancelOnClose so
+			// it is released when the caller closes the body. If the HTTP
+			// call errors out below, the deferred call cancels the context.
+			defer func() {
+				if cancel != nil {
+					cancel()
+				}
+			}()
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+			if err != nil {
+				return nil, &Error{Code: ErrCodeDownloadFailed, Message: err.Error(), Cause: err}
+			}
+			resp, err := c.cfg.HTTPClient.Do(req)
+			if err != nil {
+				return nil, &Error{Code: ErrCodeDownloadFailed, Message: err.Error(), Cause: err}
+			}
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				_, _ = io.Copy(io.Discard, resp.Body)
+				_ = resp.Body.Close()
+				return nil, &Error{
+					Code:       ErrCodeDownloadFailed,
+					StatusCode: resp.StatusCode,
+					Message:    fmt.Sprintf("failed to download PDF: %d %s", resp.StatusCode, http.StatusText(resp.StatusCode)),
+				}
+			}
+			if resp.Body == nil {
+				return nil, &Error{Code: ErrCodeInternalError, StatusCode: resp.StatusCode, Message: "presigned-URL response has no body"}
+			}
+			wrapped := &cancelOnClose{ReadCloser: resp.Body, cancel: cancel}
+			cancel = nil // transfer ownership: deferred call above no-ops now.
+			return wrapped, nil
+		}
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, &Error{Code: ErrCodeDownloadFailed, Message: err.Error(), Cause: err}

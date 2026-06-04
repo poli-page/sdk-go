@@ -185,3 +185,27 @@ func WithHeader(key, value string) RequestOption {
 		return nil
 	}
 }
+
+// DownloadOption configures a presigned-URL download. Distinct from
+// RequestOption because the presigned fetch is not subject to retries,
+// idempotency, or the SDK's auth header — only narrow knobs apply.
+type DownloadOption func(*DownloadConfig)
+
+// DownloadConfig is the resolved per-call config for
+// (*DocumentDescriptor).DownloadPDF. Exposed in the option package so
+// future options compose cleanly.
+type DownloadConfig struct {
+	// Timeout overrides the per-download deadline. 0 means use the
+	// caller's context as-is (no SDK-imposed timeout).
+	Timeout time.Duration
+}
+
+// WithDownloadTimeout sets a per-download deadline. Useful when the caller
+// wants to bound an S3 fetch independently of the API-call timeout. When
+// the caller's ctx already has a deadline, this override is ignored —
+// context wins, identical to [WithRequestTimeout].
+func WithDownloadTimeout(d time.Duration) DownloadOption {
+	return func(c *DownloadConfig) {
+		c.Timeout = d
+	}
+}
