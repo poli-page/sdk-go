@@ -865,6 +865,49 @@ func TestRender_Preview_onResponseHookFires(t *testing.T) {
 	}
 }
 
+func TestRender_Preview_onResponseDoesNotFireOn5xx(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	var calls atomic.Int32
+	client := newTestClient(t, server,
+		option.WithMaxRetries(0),
+		option.WithOnResponse(func(polipage.ResponseEvent) { calls.Add(1) }),
+	)
+	_, _ = client.Render.Preview(context.Background(), polipage.ProjectModeInput{
+		Project: "x", Template: "y", Data: map[string]any{},
+	})
+	if got := calls.Load(); got != 0 {
+		t.Errorf("OnResponse fired %d times on 5xx, want 0", got)
+	}
+}
+
+func TestRender_Preview_onRequestOnResponsePanicsRecovered(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, renderPreviewJSON)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server,
+		option.WithOnRequest(func(polipage.RequestEvent) { panic("boom-req") }),
+		option.WithOnResponse(func(polipage.ResponseEvent) { panic("boom-resp") }),
+	)
+	res, err := client.Render.Preview(context.Background(), polipage.ProjectModeInput{
+		Project: "x", Template: "y", Data: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("Preview err = %v (hook panic should be recovered)", err)
+	}
+	if res.HTML == "" {
+		t.Error("Preview returned empty result despite successful response")
+	}
+}
+
 func TestRender_Preview_hookPanicDoesNotBreakRequest(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

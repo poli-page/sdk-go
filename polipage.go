@@ -243,6 +243,7 @@ func (c *Client) sendOnce(ctx context.Context, method, path string, bodyBytes []
 		slog.Int("attempt", attempt),
 	)
 
+	t0 := time.Now()
 	c.fireOnRequest(clientconfig.RequestEvent{
 		Method:  method,
 		URL:     url,
@@ -262,6 +263,11 @@ func (c *Client) sendOnce(ctx context.Context, method, path string, bodyBytes []
 	}
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		c.fireOnResponse(clientconfig.ResponseEvent{
+			Status:     resp.StatusCode,
+			RequestID:  resp.Header.Get(constants.HeaderRequestID),
+			DurationMs: time.Since(t0).Milliseconds(),
+		})
 		if cancel != nil {
 			// Transfer ownership of cancel to the body: the caller cancels
 			// the per-attempt context when they close the body.
@@ -377,4 +383,13 @@ func (c *Client) fireOnRequest(e clientconfig.RequestEvent) {
 	}
 	defer func() { _ = recover() }()
 	c.cfg.OnRequest(e)
+}
+
+// fireOnResponse invokes the OnResponse hook (if any) with panic recovery.
+func (c *Client) fireOnResponse(e clientconfig.ResponseEvent) {
+	if c.cfg.OnResponse == nil {
+		return
+	}
+	defer func() { _ = recover() }()
+	c.cfg.OnResponse(e)
 }
