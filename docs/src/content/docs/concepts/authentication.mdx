@@ -21,17 +21,6 @@ client := polipage.NewClient(
 
 The SDK never reads `POLI_PAGE_API_KEY` implicitly. You always pass the key in.
 
-## Custom base URL
-
-To target the develop environment (or a self-hosted gateway), add `option.WithBaseURL`:
-
-```go
-client := polipage.NewClient(
-	option.WithAPIKey(os.Getenv("POLI_PAGE_API_KEY")),
-	option.WithBaseURL("https://api-develop.poli.page"),
-)
-```
-
 ## Example
 
 ```go
@@ -45,13 +34,8 @@ import (
 )
 
 func main() {
-	baseURL := os.Getenv("POLI_PAGE_BASE_URL")
-	if baseURL == "" {
-		baseURL = "https://api.poli.page"
-	}
 	_ = polipage.NewClient(
 		option.WithAPIKey(os.Getenv("POLI_PAGE_API_KEY")),
-		option.WithBaseURL(baseURL),
 	)
 }
 ```

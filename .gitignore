@@ -67,3 +67,7 @@ CLAUDE.md
 sdk-engineering-guide.md
 sdk-go-plan.md
 sdk-roadmap.md
+docs/plan/
+docs/spec/
+sdk-*-plan.md
+sdk-*-specifications.md

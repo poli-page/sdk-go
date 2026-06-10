@@ -1,8 +1,6 @@
 // Demo of the official Poli Page SDK for Go.
 //
 //	go run ./cmd/demo
-//	# or, against develop:
-//	POLI_PAGE_BASE_URL=https://api-develop.poli.page go run ./cmd/demo
 //	# or remote-only, no checkout:
 //	go run github.com/poli-page/sdk-go/cmd/demo@latest
 //

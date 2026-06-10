@@ -42,8 +42,7 @@ func WithAPIKey(key string) RequestOption {
 	}
 }
 
-// WithBaseURL overrides the API base URL. Useful for pointing at
-// api-develop.poli.page during integration testing.
+// WithBaseURL overrides the API base URL.
 func WithBaseURL(url string) RequestOption {
 	return func(c *clientconfig.Config) error {
 		c.BaseURL = url

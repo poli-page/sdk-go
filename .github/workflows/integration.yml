@@ -35,11 +35,8 @@ jobs:
       - name: Run integration tests
         env:
           POLI_PAGE_API_KEY: ${{ secrets.POLI_PAGE_API_KEY }}
-          # POLI_PAGE_BASE_URL defaults to https://api-develop.poli.page in
-          # render_integration_test.go's helper if the secret isn't set, so
-          # the secret is optional — useful when pointing the suite at a
-          # staging environment instead.
-          POLI_PAGE_BASE_URL: ${{ secrets.POLI_PAGE_BASE_URL }}
+          # Optional — when unset, the SDK uses its default base URL.
+          POLI_PAGE_TEST_BASE_URL: ${{ secrets.POLI_PAGE_TEST_BASE_URL }}
         shell: bash
         run: |
           if [ -z "$POLI_PAGE_API_KEY" ]; then

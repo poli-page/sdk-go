@@ -35,7 +35,6 @@ Integration tests hit the API. They are gated behind a build tag and the
 
 ```bash
 export POLI_PAGE_API_KEY=pp_test_...
-export POLI_PAGE_BASE_URL=https://api-develop.poli.page   # optional; defaults to api.poli.page
 go test -tags=integration -race -count=1 -v ./...
 ```
 

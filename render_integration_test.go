@@ -17,16 +17,16 @@ import (
 // Integration tests run against a live API. Gated by POLI_PAGE_API_KEY.
 // Run with: go test -tags=integration ./...
 //
-// Defaults mirror the Node integration tests (sdk-node/tests/integration):
-//   - POLI_PAGE_BASE_URL defaults to https://api-develop.poli.page
-//   - The getting-started/welcome/1.0.0 template is provisioned for every
-//     org so it works out of the box for any pp_test_* key.
+// Set POLI_PAGE_TEST_BASE_URL to target an alternate environment; otherwise
+// the SDK default applies. The getting-started/welcome/1.0.0 template is
+// provisioned for every org so it works out of the box for any pp_test_* key.
 
-func envOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
+func integrationOpts(apiKey string) []option.RequestOption {
+	opts := []option.RequestOption{option.WithAPIKey(apiKey)}
+	if v := os.Getenv("POLI_PAGE_TEST_BASE_URL"); v != "" {
+		opts = append(opts, option.WithBaseURL(v))
 	}
-	return fallback
+	return opts
 }
 
 func integrationClient(t *testing.T) *polipage.Client {
@@ -35,10 +35,7 @@ func integrationClient(t *testing.T) *polipage.Client {
 	if apiKey == "" {
 		t.Skip("POLI_PAGE_API_KEY not set — skipping integration test")
 	}
-	return polipage.NewClient(
-		option.WithAPIKey(apiKey),
-		option.WithBaseURL(envOr("POLI_PAGE_BASE_URL", "https://api-develop.poli.page")),
-	)
+	return polipage.NewClient(integrationOpts(apiKey)...)
 }
 
 func TestIntegration_Render_Preview_inlineMode(t *testing.T) {
@@ -149,11 +146,8 @@ func TestIntegration_Render_PDF_badAPIKeyReturnsAuthError(t *testing.T) {
 	if os.Getenv("POLI_PAGE_API_KEY") == "" {
 		t.Skip("POLI_PAGE_API_KEY not set — skipping integration test")
 	}
-	client := polipage.NewClient(
-		option.WithAPIKey("pp_test_invalid_xxx"),
-		option.WithBaseURL(envOr("POLI_PAGE_BASE_URL", "https://api-develop.poli.page")),
-		option.WithMaxRetries(0),
-	)
+	opts := append(integrationOpts("pp_test_invalid_xxx"), option.WithMaxRetries(0))
+	client := polipage.NewClient(opts...)
 	_, err := client.Render.PDF(context.Background(), integrationInput())
 	if err == nil {
 		t.Fatal("PDF err = nil, want auth error")
