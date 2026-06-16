@@ -1,0 +1,33 @@
+# Codecov configuration — https://docs.codecov.com/docs/codecovyml-reference
+#
+# Coverage is produced by `go test -coverprofile=coverage.out -covermode=atomic`
+# in ci.yml and uploaded with codecov-action via OIDC. Public repo: no token.
+
+coverage:
+  precision: 2
+  round: down
+  range: "70...100"
+
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+    patch:
+      default:
+        target: 80%
+        threshold: 0%
+
+comment:
+  layout: "reach, diff, flags, files"
+  behavior: default
+  require_changes: true
+
+# Folders that ship as documentation, demos, or build tooling rather than as
+# the library itself. The Go cover profile already excludes *_test.go, so
+# tests don't need to be listed here.
+ignore:
+  - "examples/**"
+  - "cmd/**"
+  - "docs/**"
+  - "scripts/**"

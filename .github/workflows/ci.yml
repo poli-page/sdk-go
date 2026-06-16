@@ -6,7 +6,8 @@ on:
     branches: [main]
 
 # Restrict workflow permissions to the minimum needed. ci.yml never writes
-# to the repo, never publishes anything, never touches secrets — read-only.
+# to the repo and never publishes anything; the only outbound write is the
+# Codecov upload, which runs under a short-lived OIDC token (no repo secret).
 permissions:
   contents: read
 
@@ -18,6 +19,11 @@ env:
 jobs:
   test:
     runs-on: ${{ matrix.os }}
+    # id-token is needed by codecov/codecov-action so it can mint a short-lived
+    # OIDC token instead of requiring a CODECOV_TOKEN secret on this public repo.
+    permissions:
+      contents: read
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -99,10 +105,21 @@ jobs:
         shell: bash
         run: |
           if [ -f go.mod ]; then
-            go test -v -race ./...
+            go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
           else
             echo "No go.mod yet — skipping test"
           fi
+
+      - name: Upload coverage to Codecov
+        # Upload only from one matrix entry to avoid noisy duplicate reports.
+        # `use_oidc: true` makes this tokenless on public repos — see the
+        # job-level `id-token: write` permission above.
+        if: ${{ matrix.os == 'ubuntu-latest' && matrix.go-version == '1.26' && hashFiles('coverage.out') != '' }}
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          use_oidc: true
+          files: coverage.out
+          fail_ci_if_error: false
 
       - name: Consumer-module install-smoke
         # Sanity check that a fresh downstream module can import the SDK
