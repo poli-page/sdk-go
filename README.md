@@ -1,9 +1,8 @@
 # Poli Page SDK for Go
 
-[![Release](https://img.shields.io/github/v/release/poli-page/sdk-go?display_name=tag&sort=semver&style=flat&labelColor=334155&logo=go&logoColor=ffffff&label=Release&color=0ea5e9)](https://github.com/poli-page/sdk-go/releases)
-[![Ci](https://img.shields.io/github/actions/workflow/status/poli-page/sdk-go/ci.yml?branch=main&style=flat&labelColor=334155&logo=githubactions&logoColor=ffffff&label=Ci)](https://github.com/poli-page/sdk-go/actions/workflows/ci.yml)
-[![Codeql](https://img.shields.io/github/actions/workflow/status/poli-page/sdk-go/codeql.yml?branch=main&style=flat&labelColor=334155&logo=github&logoColor=ffffff&label=Codeql)](https://github.com/poli-page/sdk-go/actions/workflows/codeql.yml)
-[![Coverage](https://img.shields.io/codecov/c/github/poli-page/sdk-go?style=flat&labelColor=334155&logo=codecov&logoColor=ffffff&label=Coverage)](https://codecov.io/gh/poli-page/sdk-go)
+[![Ci](https://img.shields.io/github/actions/workflow/status/poli-page/sdk-go/ci.yml?branch=main&style=flat&labelColor=334155&logo=githubactions&logoColor=ffffff&label=Ci&color=059669)](https://github.com/poli-page/sdk-go/actions/workflows/ci.yml)
+[![Codeql](https://img.shields.io/github/actions/workflow/status/poli-page/sdk-go/codeql.yml?branch=main&style=flat&labelColor=334155&logo=github&logoColor=ffffff&label=Codeql&color=059669)](https://github.com/poli-page/sdk-go/actions/workflows/codeql.yml)
+[![Coverage](https://img.shields.io/codecov/c/github/poli-page/sdk-go?style=flat&labelColor=334155&logo=codecov&logoColor=ffffff&label=Coverage&color=059669)](https://codecov.io/gh/poli-page/sdk-go)
 [![Go](https://img.shields.io/badge/Go-1.25%2B-0ea5e9?style=flat&labelColor=334155&logo=go&logoColor=ffffff)](https://go.dev/)
 [![Lint](https://img.shields.io/badge/Lint-golangci--lint-0ea5e9?style=flat&labelColor=334155&logo=go&logoColor=ffffff)](https://golangci-lint.run/)
 [![Go.dev](https://img.shields.io/badge/Go.dev-reference-0ea5e9?style=flat&labelColor=334155&logo=go&logoColor=ffffff)](https://pkg.go.dev/github.com/poli-page/sdk-go)
