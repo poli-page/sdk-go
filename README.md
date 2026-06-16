@@ -10,6 +10,8 @@
 
 Official Go SDK for [Poli Page](https://poli.page) — render polished PDFs from HTML templates via the Poli Page API.
 
+→ Documentation: **<https://poli-page.github.io/sdk-go/>**
+
 → API reference (auto-generated from doc comments): **[pkg.go.dev/github.com/poli-page/sdk-go](https://pkg.go.dev/github.com/poli-page/sdk-go)**
 
 ## Install
