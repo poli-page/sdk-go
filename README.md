@@ -7,6 +7,8 @@
 [![CodeQL](https://github.com/poli-page/sdk-go/actions/workflows/codeql.yml/badge.svg)](https://github.com/poli-page/sdk-go/actions/workflows/codeql.yml)
 [![codecov](https://codecov.io/gh/poli-page/sdk-go/branch/main/graph/badge.svg)](https://codecov.io/gh/poli-page/sdk-go)
 [![Go Report Card](https://goreportcard.com/badge/github.com/poli-page/sdk-go)](https://goreportcard.com/report/github.com/poli-page/sdk-go)
+[![Go](https://img.shields.io/badge/Go-1.25%2B-00ADD8?logo=go&logoColor=white)](https://go.dev/)
+[![lint: golangci-lint](https://img.shields.io/badge/lint-golangci--lint-00ADD8?logo=go&logoColor=white)](https://golangci-lint.run/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Official Go SDK for [Poli Page](https://poli.page) — render polished PDFs from HTML templates via the Poli Page API.
