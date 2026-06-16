@@ -6,7 +6,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/poli-page/sdk-go"
+	polipage "github.com/poli-page/sdk-go"
 	"github.com/poli-page/sdk-go/option"
 )
 
@@ -23,7 +23,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	defer body.Close()
+	defer func() { _ = body.Close() }()
 
 	// Stream directly to an HTTP response writer, an S3 multipart upload, or any
 	// io.Writer — bounded memory regardless of PDF size.

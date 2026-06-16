@@ -113,25 +113,36 @@ func loadDocs(repoRoot string) map[string]*pkgInfo {
 
 func parsePkg(dir, name string) *pkgInfo {
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, dir, func(fi os.FileInfo) bool {
-		// Skip test files; include everything else.
-		return !strings.HasSuffix(fi.Name(), "_test.go")
-	}, parser.ParseComments)
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		log.Fatalf("extract-api: parse %s: %v", dir, err)
+		log.Fatalf("extract-api: read dir %s: %v", dir, err)
 	}
-	apkg, ok := pkgs[name]
-	if !ok {
-		// Pick the first package; this happens if the directory contains main.go.
-		for _, p := range pkgs {
-			apkg = p
-			break
+	var files []*ast.File
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
 		}
+		n := e.Name()
+		if !strings.HasSuffix(n, ".go") || strings.HasSuffix(n, "_test.go") {
+			continue
+		}
+		path := filepath.Join(dir, n)
+		f, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+		if err != nil {
+			log.Fatalf("extract-api: parse %s: %v", path, err)
+		}
+		if f.Name.Name != name {
+			continue
+		}
+		files = append(files, f)
 	}
-	if apkg == nil {
+	if len(files) == 0 {
 		log.Fatalf("extract-api: package %s not found in %s", name, dir)
 	}
-	docPkg := doc.New(apkg, "./", doc.AllDecls)
+	docPkg, err := doc.NewFromFiles(fset, files, "./", doc.AllDecls)
+	if err != nil {
+		log.Fatalf("extract-api: doc.NewFromFiles %s: %v", dir, err)
+	}
 	return &pkgInfo{docPkg: docPkg}
 }
 

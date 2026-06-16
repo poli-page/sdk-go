@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/poli-page/sdk-go"
+	polipage "github.com/poli-page/sdk-go"
 	"github.com/poli-page/sdk-go/option"
 )
 
