@@ -1,6 +1,7 @@
 # Poli Page SDK for Go
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/poli-page/sdk-go.svg)](https://pkg.go.dev/github.com/poli-page/sdk-go)
+[![docs](https://img.shields.io/badge/docs-online-brightgreen)](https://poli-page.github.io/sdk-go/)
 [![Release](https://img.shields.io/github/v/release/poli-page/sdk-go?display_name=tag&sort=semver)](https://github.com/poli-page/sdk-go/releases)
 [![CI](https://github.com/poli-page/sdk-go/actions/workflows/ci.yml/badge.svg)](https://github.com/poli-page/sdk-go/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/poli-page/sdk-go/branch/main/graph/badge.svg)](https://codecov.io/gh/poli-page/sdk-go)
