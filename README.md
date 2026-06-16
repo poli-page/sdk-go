@@ -8,6 +8,7 @@
 [![Lint](https://img.shields.io/badge/Lint-golangci--lint-blue?style=flat&logo=go&logoColor=ffffff)](https://golangci-lint.run/)
 [![Go.dev](https://img.shields.io/badge/Go.dev-reference-blue?style=flat&logo=go&logoColor=ffffff)](https://pkg.go.dev/github.com/poli-page/sdk-go)
 [![Report](https://img.shields.io/badge/Report-A%2B-blue?style=flat&logo=go&logoColor=ffffff)](https://goreportcard.com/report/github.com/poli-page/sdk-go)
+[![Deps](https://img.shields.io/badge/Deps-up%20to%20date-brightgreen?style=flat&logo=go&logoColor=ffffff)](https://github.com/poli-page/sdk-go/network/dependencies)
 [![Docs](https://img.shields.io/badge/Docs-online-brightgreen?style=flat&logo=readthedocs&logoColor=ffffff)](https://poli-page.github.io/sdk-go/)
 [![License](https://img.shields.io/github/license/poli-page/sdk-go?style=flat&logo=gnu&logoColor=ffffff&label=License)](LICENSE)
 
