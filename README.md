@@ -1,9 +1,10 @@
 # Poli Page SDK for Go
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/poli-page/sdk-go.svg)](https://pkg.go.dev/github.com/poli-page/sdk-go)
+[![Release](https://img.shields.io/github/v/release/poli-page/sdk-go?display_name=tag&sort=semver)](https://github.com/poli-page/sdk-go/releases)
 [![CI](https://github.com/poli-page/sdk-go/actions/workflows/ci.yml/badge.svg)](https://github.com/poli-page/sdk-go/actions/workflows/ci.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/poli-page/sdk-go)](https://goreportcard.com/report/github.com/poli-page/sdk-go)
-[![License](https://img.shields.io/github/license/poli-page/sdk-go)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Official Go SDK for [Poli Page](https://poli.page) — render polished PDFs from HTML templates via the Poli Page API.
 
