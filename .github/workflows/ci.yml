@@ -31,11 +31,11 @@ jobs:
           - os: ubuntu-latest
             go-version: '1.25'
           - os: ubuntu-latest
-            go-version: '1.26'
+            go-version: '1.26.5'
           - os: macos-latest
-            go-version: '1.26'
+            go-version: '1.26.5'
           - os: windows-latest
-            go-version: '1.26'
+            go-version: '1.26.5'
     steps:
       - name: Disable autocrlf
         shell: bash
@@ -114,7 +114,7 @@ jobs:
         # Upload only from one matrix entry to avoid noisy duplicate reports.
         # `use_oidc: true` makes this tokenless on public repos — see the
         # job-level `id-token: write` permission above.
-        if: ${{ matrix.os == 'ubuntu-latest' && matrix.go-version == '1.26' && hashFiles('coverage.out') != '' }}
+        if: ${{ matrix.os == 'ubuntu-latest' && matrix.go-version == '1.26.5' && hashFiles('coverage.out') != '' }}
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           use_oidc: true
