@@ -31,11 +31,11 @@ jobs:
           - os: ubuntu-latest
             go-version: '1.25'
           - os: ubuntu-latest
-            go-version: '1.26.5'
+            go-version: '1.26'
           - os: macos-latest
-            go-version: '1.26.5'
+            go-version: '1.26'
           - os: windows-latest
-            go-version: '1.26.5'
+            go-version: '1.26'
     steps:
       - name: Disable autocrlf
         shell: bash
@@ -46,6 +46,11 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ matrix.go-version }}
+          # Why: setup-go defaults to reusing whatever patch the runner has
+          # cached for the minor, so govulncheck ends up scanning a stdlib that
+          # is one or more security releases behind. Always resolve to the
+          # newest published patch instead.
+          check-latest: true
 
       - name: Build
         shell: bash
@@ -114,7 +119,7 @@ jobs:
         # Upload only from one matrix entry to avoid noisy duplicate reports.
         # `use_oidc: true` makes this tokenless on public repos — see the
         # job-level `id-token: write` permission above.
-        if: ${{ matrix.os == 'ubuntu-latest' && matrix.go-version == '1.26.5' && hashFiles('coverage.out') != '' }}
+        if: ${{ matrix.os == 'ubuntu-latest' && matrix.go-version == '1.26' && hashFiles('coverage.out') != '' }}
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           use_oidc: true
