@@ -100,7 +100,11 @@ jobs:
         shell: bash
         run: |
           if [ -f go.mod ]; then
-            go install golang.org/x/vuln/cmd/govulncheck@latest
+            # Why: @latest tracks a tool whose own Go floor moves independently
+            # of this matrix — v1.8.0 requires Go 1.26 and so cannot build on
+            # the 1.25 leg under GOTOOLCHAIN=local. Pin to the newest release
+            # that still supports the oldest Go we test.
+            go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
             "$(go env GOPATH)/bin/govulncheck" ./...
           else
             echo "No go.mod yet — skipping govulncheck"
