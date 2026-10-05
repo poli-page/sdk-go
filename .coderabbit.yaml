@@ -1,0 +1,91 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit config for poli-page repos. PRs here are mostly opened and fixed by automated agents
+# (the poli-page auto loop and issue pipeline), which read CodeRabbit's findings and its commit status.
+language: en-US
+early_access: false
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  allow_author_approval: true
+  # The summary goes in the walkthrough, never in the PR description: the merge gate reads the description.
+  high_level_summary: false
+  high_level_summary_in_walkthrough: true
+  review_status: true
+  review_details: false
+  # The loop decides "reviewed this head" from the CodeRabbit commit status ("Review completed").
+  review_progress: true
+  commit_status: true
+  fail_commit_status: false
+  collapse_walkthrough: true
+  changed_files_summary: true
+  sequence_diagrams: true
+  estimate_code_review_effort: true
+  assess_linked_issues: true
+  related_issues: true
+  related_prs: true
+  suggested_labels: true
+  # PR labels are the closed issues' labels; CodeRabbit only suggests.
+  auto_apply_labels: false
+  suggested_reviewers: true
+  auto_assign_reviewers: false
+  in_progress_fortune: false
+  poem: false
+  enable_prompt_for_ai_agents: true
+  abort_on_close: true
+  disable_cache: false
+  slop_detection:
+    enabled: true
+    include_all_authors: false
+  auto_review:
+    enabled: true
+    drafts: false
+    # Every push of a fix round must be reviewed, and never auto-paused (the loop allows up to 5 rounds).
+    auto_incremental_review: true
+    auto_pause_after_reviewed_commits: 0
+  pre_merge_checks:
+    docstrings:
+      mode: "off"
+  path_filters:
+    - "!docs/package-lock.json"
+    - "!docs/dist/**"
+    - "!docs/.astro/**"
+    - "!docs/node_modules/**"
+    - "!docs/src/content/docs/reference/**"
+    - "!scripts/extract-api/.cache/**"
+    - "!bin/**"
+    - "!output/**"
+  path_instructions:
+    - path: "*.go"
+      instructions: >-
+        Idiomatic Go (go 1.25): context.Context first on I/O methods, errors returned and wrapped
+        (%w) rather than panicked, no goroutine leaks. Code must pass gofmt, go vet and the
+        golangci-lint config in .golangci.yml.
+    - path: "{polipage.go,render.go,documents.go,error.go,types.go,hooks.go,fs.go,option/**}"
+      instructions: >-
+        This is the public API surface of an SDK. It must stay consistent with the other poli-page
+        SDKs and the API spec: API errors expose the `{ error: { code } }` payload and codes
+        (see error_codes_test.go). Flag breaking changes to exported identifiers unless a major
+        version bump, a CHANGELOG.md entry and a MIGRATION.md section accompany them.
+    - path: "internal/**"
+      instructions: >-
+        Internal packages (http, clientconfig, constants, uuid, version). Check retry, timeout and
+        idempotency behaviour, that API keys never leak into errors or logs, and that
+        internal/version/version.go is only changed by a release.
+    - path: "**/*_test.go"
+      instructions: >-
+        Every public method needs a test (the repo is TDD). Unit tests must not hit the network;
+        tests that call the real API belong behind the `integration` build tag and
+        POLI_PAGE_API_KEY. Prefer table-driven tests and run clean under `go test -race`.
+    - path: "{examples/**,cmd/demo/**}"
+      instructions: >-
+        Sample code customers copy: it must compile against the current public API, read the API
+        key from the POLI_PAGE_API_KEY env var (never hardcode secrets) and handle errors.
+    - path: "{README.md,CHANGELOG.md,MIGRATION.md,docs/src/content/**}"
+      instructions: >-
+        Documentation must match the actual public API and its code samples must be correct.
+        User-visible changes need a CHANGELOG.md entry under [Unreleased].
+knowledge_base:
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "CONTRIBUTING.md"
