@@ -63,7 +63,7 @@ reviews:
     - path: "{polipage.go,render.go,documents.go,error.go,types.go,hooks.go,fs.go,option/**}"
       instructions: >-
         This is the public API surface of an SDK. It must stay consistent with the other poli-page
-        SDKs and the API spec: API errors expose the `{ error: { code } }` payload and codes
+        SDKs and the API spec: API errors expose the `{ error: CODE_STRING, detail?, issues? } (flat, API spec §4.1)` payload and codes
         (see error_codes_test.go). Flag breaking changes to exported identifiers unless a major
         version bump, a CHANGELOG.md entry and a MIGRATION.md section accompany them.
     - path: "internal/**"
