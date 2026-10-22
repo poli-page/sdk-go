@@ -97,6 +97,9 @@ jobs:
           fi
 
       - name: govulncheck
+        # Go 1.25 stdlib has advisories fixed only in 1.26; build and tests still
+        # run on 1.25 to keep the go.mod minimum checked.
+        if: matrix.go-version != '1.25'
         shell: bash
         run: |
           if [ -f go.mod ]; then
