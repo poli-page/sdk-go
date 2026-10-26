@@ -16,7 +16,7 @@ func main() {
 		option.WithAPIKey(os.Getenv("POLI_PAGE_API_KEY")),
 	)
 
-	doc, err := client.Render.Document(ctx, polipage.ProjectModeInput{
+	doc, err := client.Render.Document(ctx, polipage.RenderInput{
 		Project:  "billing",
 		Template: "invoice",
 		Data:     map[string]any{"invoiceNumber": "INV-001", "total": 1280},

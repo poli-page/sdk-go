@@ -36,7 +36,7 @@ func expectCode(t *testing.T, status int, code string, invoke func(*polipage.Cli
 	t.Cleanup(server.Close)
 
 	client := polipage.NewClient(
-		option.WithAPIKey("pp_test_abc"),
+		option.WithAPIKey("pp_sandbox_abc"),
 		option.WithBaseURL(server.URL),
 		option.WithHTTPClient(server.Client()),
 		option.WithMaxRetries(0), // no retries so 5xx/429 surface immediately
@@ -66,113 +66,96 @@ func expectCode(t *testing.T, status int, code string, invoke func(*polipage.Cli
 
 // renderPDF is the canonical invoke used by most cases below.
 func renderPDF(c *polipage.Client) error {
-	_, err := c.Render.PDF(context.Background(), polipage.ProjectModeInput{
+	_, err := c.Render.PDF(context.Background(), polipage.RenderInput{
 		Project: "p", Template: "t",
-		Version: polipage.Opt("1.0.0"),
-		Data:    map[string]any{},
+		Data: map[string]any{},
 	})
 	return err
 }
 
-func TestErrorCodes_PAYMENT_REQUIRED_402(t *testing.T) {
-	t.Parallel()
-	expectCode(t, 402, polipage.ErrCodePaymentRequired, renderPDF)
+func documentsGet(c *polipage.Client) error {
+	_, err := c.Documents.Get(context.Background(), "doc_1")
+	return err
 }
 
-func TestErrorCodes_ORGANIZATION_CANCELLED_403(t *testing.T) {
-	t.Parallel()
-	expectCode(t, 403, polipage.ErrCodeOrganizationCancelled, renderPDF)
+func documentsThumbnails(c *polipage.Client) error {
+	_, err := c.Documents.Thumbnails(context.Background(), "doc_1", polipage.ThumbnailOptions{})
+	return err
 }
 
-func TestErrorCodes_ORGANIZATION_PURGED_410(t *testing.T) {
+// TestErrorCodes_knownAPICodesRoundTrip covers every API code of the
+// contract (31 in all), each with the status the API answers it with.
+func TestErrorCodes_knownAPICodesRoundTrip(t *testing.T) {
 	t.Parallel()
-	expectCode(t, 410, polipage.ErrCodeOrganizationPurged, renderPDF)
+	cases := []struct {
+		status int
+		code   string
+		invoke func(*polipage.Client) error
+	}{
+		{401, polipage.ErrCodeMissingAPIKey, renderPDF},
+		{401, polipage.ErrCodeInvalidAPIKey, renderPDF},
+		{403, polipage.ErrCodeOrganizationCancelled, renderPDF},
+		{410, polipage.ErrCodeOrganizationPurged, renderPDF},
+		{403, polipage.ErrCodeForbidden, renderPDF},
+		{400, polipage.ErrCodeValidationError, renderPDF},
+		{400, polipage.ErrCodeMissingData, renderPDF},
+		{400, polipage.ErrCodeMissingTemplateSlug, renderPDF},
+		{400, polipage.ErrCodeProjectRequiredForDocument, renderPDF},
+		{404, polipage.ErrCodeNotFound, renderPDF},
+		{404, polipage.ErrCodeDocumentNotFound, documentsGet},
+		{429, polipage.ErrCodeQuotaExceeded, renderPDF},
+		{429, polipage.ErrCodeOverageCapExceeded, renderPDF},
+		{500, polipage.ErrCodeAPIInternalError, renderPDF},
+		{503, polipage.ErrCodePublishInProgress, renderPDF},
+		{400, polipage.ErrCodeEnvironmentMismatch, renderPDF},
+		{404, polipage.ErrCodeProjectNotInEnvironment, renderPDF},
+		{404, polipage.ErrCodeTemplateNotFound, renderPDF},
+		{410, polipage.ErrCodeDocumentGone, documentsGet},
+		{403, polipage.ErrCodeEnvironmentProtected, renderPDF},
+		{403, polipage.ErrCodeOrganizationPaymentGrace, renderPDF},
+		{400, polipage.ErrCodeEmptyDocument, renderPDF},
+		{502, polipage.ErrCodeStorageAccessDenied, renderPDF},
+		{503, polipage.ErrCodeOrganizationMigrating, renderPDF},
+		{404, polipage.ErrCodeProjectNotFound, renderPDF},
+		{400, polipage.ErrCodeTemplateError, renderPDF},
+		{403, polipage.ErrCodeThumbnailsNotAvailable, documentsThumbnails},
+		{429, polipage.ErrCodeRateLimitExceeded, renderPDF},
+		{413, polipage.ErrCodeRenderBodyTooLarge, renderPDF},
+		{413, polipage.ErrCodeDocumentTooLarge, renderPDF},
+		{504, polipage.ErrCodeRenderTimeout, renderPDF},
+	}
+	if len(cases) != 31 {
+		t.Fatalf("len(cases) = %d, want the contract's 31 API codes", len(cases))
+	}
+	for _, tc := range cases {
+		t.Run(fmt.Sprintf("%s_%d", tc.code, tc.status), func(t *testing.T) {
+			t.Parallel()
+			expectCode(t, tc.status, tc.code, tc.invoke)
+		})
+	}
 }
 
-func TestErrorCodes_DOCUMENT_NOT_FOUND_404_fromDocumentsGet(t *testing.T) {
+func TestErrorCodes_errorFieldAndDetailFromFlatAPIBody(t *testing.T) {
 	t.Parallel()
-	expectCode(t, 404, polipage.ErrCodeDocumentNotFound, func(c *polipage.Client) error {
-		_, err := c.Documents.Get(context.Background(), "doc_missing")
-		return err
-	})
-}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = io.WriteString(w, `{"error":"TEMPLATE_NOT_FOUND","detail":"Template 'welcome' not found in project 'getting-started'","requestId":"req_1"}`)
+	}))
+	t.Cleanup(server.Close)
 
-func TestErrorCodes_GONE_410_fromDocumentsGet(t *testing.T) {
-	t.Parallel()
-	expectCode(t, 410, polipage.ErrCodeGone, func(c *polipage.Client) error {
-		_, err := c.Documents.Get(context.Background(), "doc_deleted")
-		return err
-	})
-}
-
-func TestErrorCodes_QUOTA_EXCEEDED_429(t *testing.T) {
-	t.Parallel()
-	expectCode(t, 429, polipage.ErrCodeQuotaExceeded, renderPDF)
-}
-
-func TestErrorCodes_OVERAGE_CAP_EXCEEDED_429(t *testing.T) {
-	t.Parallel()
-	expectCode(t, 429, polipage.ErrCodeOverageCapExceeded, renderPDF)
-}
-
-func TestErrorCodes_INVALID_VERSION_FORMAT_400(t *testing.T) {
-	t.Parallel()
-	expectCode(t, 400, polipage.ErrCodeInvalidVersionFormat, renderPDF)
-}
-
-func TestErrorCodes_VERSION_REQUIRED_400(t *testing.T) {
-	t.Parallel()
-	expectCode(t, 400, polipage.ErrCodeVersionRequired, renderPDF)
-}
-
-func TestErrorCodes_INVALID_VERSION_FOR_KEY_ENV_400(t *testing.T) {
-	t.Parallel()
-	expectCode(t, 400, polipage.ErrCodeInvalidVersionForKeyEnv, renderPDF)
-}
-
-func TestErrorCodes_NOT_FOUND_404(t *testing.T) {
-	t.Parallel()
-	expectCode(t, 404, polipage.ErrCodeNotFound, renderPDF)
-}
-
-func TestErrorCodes_VERSION_NOT_FOUND_404(t *testing.T) {
-	t.Parallel()
-	expectCode(t, 404, polipage.ErrCodeVersionNotFound, renderPDF)
-}
-
-func TestErrorCodes_VALIDATION_ERROR_400(t *testing.T) {
-	t.Parallel()
-	expectCode(t, 400, polipage.ErrCodeValidationError, renderPDF)
-}
-
-func TestErrorCodes_MISSING_DATA_400(t *testing.T) {
-	t.Parallel()
-	expectCode(t, 400, polipage.ErrCodeMissingData, renderPDF)
-}
-
-func TestErrorCodes_MISSING_PROJECT_OR_TEMPLATE_400(t *testing.T) {
-	t.Parallel()
-	expectCode(t, 400, polipage.ErrCodeMissingProjectOrTemplate, renderPDF)
-}
-
-func TestErrorCodes_MISSING_TEMPLATE_SLUG_400(t *testing.T) {
-	t.Parallel()
-	expectCode(t, 400, polipage.ErrCodeMissingTemplateSlug, renderPDF)
-}
-
-func TestErrorCodes_MISSING_API_KEY_401(t *testing.T) {
-	t.Parallel()
-	expectCode(t, 401, polipage.ErrCodeMissingAPIKey, renderPDF)
-}
-
-func TestErrorCodes_INVALID_API_KEY_401(t *testing.T) {
-	t.Parallel()
-	expectCode(t, 401, polipage.ErrCodeInvalidAPIKey, renderPDF)
-}
-
-func TestErrorCodes_FORBIDDEN_403(t *testing.T) {
-	t.Parallel()
-	expectCode(t, 403, polipage.ErrCodeForbidden, renderPDF)
+	client := newTestClient(t, server)
+	err := renderPDF(client)
+	var pErr *polipage.Error
+	if !errors.As(err, &pErr) {
+		t.Fatalf("err = %v, want *polipage.Error", err)
+	}
+	if pErr.Code != polipage.ErrCodeTemplateNotFound || pErr.StatusCode != 404 {
+		t.Errorf("err = %+v, want Code=TEMPLATE_NOT_FOUND StatusCode=404", pErr)
+	}
+	if want := "Template 'welcome' not found in project 'getting-started'"; pErr.Message != want {
+		t.Errorf("Message = %q, want %q", pErr.Message, want)
+	}
 }
 
 func TestErrorCodes_unknownCodePassesThroughVerbatim(t *testing.T) {
@@ -180,4 +163,20 @@ func TestErrorCodes_unknownCodePassesThroughVerbatim(t *testing.T) {
 	// The SDK must NOT filter the API's wire code — future-compat. A code
 	// not in the ErrCode* constant set still round-trips intact.
 	expectCode(t, 418, "I_AM_A_TEAPOT", renderPDF)
+}
+
+func TestErrorCodes_unknownErrorFieldPassesThroughVerbatim(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_, _ = io.WriteString(w, `{"error":"SOME_FUTURE_CODE","detail":"later"}`)
+	}))
+	t.Cleanup(server.Close)
+
+	err := renderPDF(newTestClient(t, server))
+	var pErr *polipage.Error
+	if !errors.As(err, &pErr) || pErr.Code != "SOME_FUTURE_CODE" || pErr.Message != "later" {
+		t.Fatalf("err = %v, want Code=SOME_FUTURE_CODE Message=later", err)
+	}
 }

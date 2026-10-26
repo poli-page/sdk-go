@@ -242,7 +242,7 @@ func findType(pkg *doc.Package, name string) *doc.Type {
 // renderFuncSignature returns the canonical Go signature for a function or
 // method, e.g.:
 //
-//	func (r *Render) PDF(ctx context.Context, in ProjectModeInput, opts ...option.RequestOption) ([]byte, error)
+//	func (r *Render) PDF(ctx context.Context, in RenderInput, opts ...option.RequestOption) ([]byte, error)
 func renderFuncSignature(fn *doc.Func) string {
 	if fn == nil || fn.Decl == nil {
 		return ""
@@ -372,6 +372,7 @@ func defaultErrors(extra ...errorRow) []errorRow {
 func documentErrors() []errorRow {
 	return []errorRow{
 		{"DOCUMENT_NOT_FOUND", "No stored document matches the supplied id."},
+		{"DOCUMENT_GONE", "The document was deleted or has expired."},
 		{"INVALID_API_KEY", "The API key is malformed or revoked."},
 		{"INTERNAL_ERROR", "API returned 5xx. Retryable."},
 	}
@@ -391,16 +392,10 @@ var methodTargets = []methodTarget{
 		errorCodes: defaultErrors(errorRow{"DOWNLOAD_FAILED", "Presigned URL fetch failed."}),
 	},
 	{
-		slug: "render-preview", displayName: "Render.Preview",
-		receiver: "Render", method: "Preview",
-		exampleDir: "render-preview",
-		errorCodes: defaultErrors(),
-	},
-	{
 		slug: "render-document", displayName: "Render.Document",
 		receiver: "Render", method: "Document",
 		exampleDir: "render-document",
-		errorCodes: defaultErrors(errorRow{"PROJECT_REQUIRED_FOR_DOCUMENT", "Render.Document requires ProjectModeInput.Project."}),
+		errorCodes: defaultErrors(errorRow{"PROJECT_REQUIRED_FOR_DOCUMENT", "Render.Document requires RenderInput.Project."}),
 	},
 	{
 		slug: "documents-get", displayName: "Documents.Get",
@@ -418,13 +413,15 @@ var methodTargets = []methodTarget{
 		slug: "documents-thumbnails", displayName: "Documents.Thumbnails",
 		receiver: "Documents", method: "Thumbnails",
 		exampleDir: "documents-thumbnails",
-		errorCodes: append(documentErrors(), errorRow{"VALIDATION_ERROR", "Invalid ThumbnailOptions (width required, JPEG quality range)."}),
+		errorCodes: append(documentErrors(),
+			errorRow{"VALIDATION_ERROR", "A ThumbnailOptions value is out of range (width 50-2000, quality 1-100)."},
+			errorRow{"THUMBNAILS_NOT_AVAILABLE", "The organization's plan does not include thumbnails."}),
 	},
 	{
 		slug: "documents-delete", displayName: "Documents.Delete",
 		receiver: "Documents", method: "Delete",
 		exampleDir: "documents-delete",
-		errorCodes: append(documentErrors(), errorRow{"GONE", "Document was already deleted."}),
+		errorCodes: documentErrors(),
 	},
 	{
 		slug: "render-to-file", displayName: "RenderToFile",
@@ -616,9 +613,6 @@ var publicTypes = []string{
 	"Render",
 	"Documents",
 	"RenderInput",
-	"ProjectModeInput",
-	"InlineModeInput",
-	"PreviewResult",
 	"DocumentPreviewResult",
 	"DocumentDescriptor",
 	"Thumbnail",
@@ -626,7 +620,6 @@ var publicTypes = []string{
 	"RenderMetadata",
 	"PageFormat",
 	"Orientation",
-	"Environment",
 	"ThumbnailFormat",
 	"RetryEvent",
 	"Error",
@@ -700,33 +693,43 @@ func renderErrorsPage() string {
 		{"INVALID_API_KEY", "The API key is malformed or revoked."},
 	}
 	apiBilling := []row{
-		{"PAYMENT_REQUIRED", "Organization billing is past due."},
 		{"FORBIDDEN", "The key does not have access to the requested resource."},
+		{"ENVIRONMENT_PROTECTED", "The environment is protected: this key may not delete its documents (a service key may)."},
+		{"ORGANIZATION_PAYMENT_GRACE", "Organization billing is past due; the organization is read-only."},
 		{"ORGANIZATION_CANCELLED", "The organization has been cancelled."},
 		{"ORGANIZATION_PURGED", "The organization has been purged."},
+		{"THUMBNAILS_NOT_AVAILABLE", "The organization's plan does not include thumbnails."},
 	}
 	apiNotFound := []row{
-		{"NOT_FOUND", "The project/template slug does not exist or is not published."},
-		{"VERSION_NOT_FOUND", "The pinned version does not exist for this template."},
+		{"NOT_FOUND", "The requested resource does not exist."},
+		{"PROJECT_NOT_FOUND", "No project matches the supplied slug."},
+		{"PROJECT_NOT_IN_ENVIRONMENT", "The project is not published in the key's environment."},
+		{"TEMPLATE_NOT_FOUND", "No template matches the supplied slug in the published project."},
 		{"DOCUMENT_NOT_FOUND", "No stored document matches the supplied id."},
-		{"GONE", "The resource existed but has been deleted."},
+		{"DOCUMENT_GONE", "The document was deleted or has expired."},
 	}
 	apiValidation := []row{
-		{"VALIDATION_ERROR", "Data does not satisfy the template schema."},
+		{"VALIDATION_ERROR", "The request body failed validation (unknown field, bad value)."},
 		{"MISSING_DATA", "Request body lacks the required Data field."},
-		{"MISSING_PROJECT_OR_TEMPLATE", "Project mode call without both Project and Template."},
 		{"MISSING_TEMPLATE_SLUG", "Template slug is missing."},
-		{"PROJECT_REQUIRED_FOR_DOCUMENT", "Render.Document requires ProjectModeInput.Project."},
-		{"INVALID_VERSION_FORMAT", "The Version string is not a valid semver."},
-		{"VERSION_REQUIRED", "Live keys require a pinned Version."},
-		{"INVALID_VERSION_FOR_KEY_ENV", "Sandbox key targeting a live-only version, or vice versa."},
+		{"PROJECT_REQUIRED_FOR_DOCUMENT", "Render.Document requires RenderInput.Project."},
+		{"ENVIRONMENT_MISMATCH", "The resource belongs to another environment than the key's."},
+		{"TEMPLATE_ERROR", "The template failed to render with the supplied data."},
+		{"EMPTY_DOCUMENT", "The render produced no pages."},
+		{"RENDER_BODY_TOO_LARGE", "The request body exceeds the render size limit."},
+		{"DOCUMENT_TOO_LARGE", "The document exceeds the engine's size or complexity limit."},
 	}
 	apiRate := []row{
 		{"QUOTA_EXCEEDED", "Per-key rate limit or monthly quota reached. Retryable."},
 		{"OVERAGE_CAP_EXCEEDED", "Hard overage cap reached. Not retryable."},
+		{"RATE_LIMIT_EXCEEDED", "Too many requests. Retryable."},
 	}
 	apiServer := []row{
 		{"INTERNAL_ERROR", "The API returned 5xx. Retryable."},
+		{"PUBLISH_IN_PROGRESS", "A publish locks the project in the key's environment. Retryable after Retry-After."},
+		{"ORGANIZATION_MIGRATING", "The organization is being migrated. Retryable."},
+		{"STORAGE_ACCESS_DENIED", "The organization's own storage bucket could not be reached. Retryable."},
+		{"RENDER_TIMEOUT", "The render did not finish in time. Retryable."},
 	}
 
 	j := func(rows []row) string {
@@ -824,13 +827,16 @@ func buildMetaSidecar() any {
 		"invalid_options", "network_error", "timeout", "aborted",
 		"io_failed", "DOWNLOAD_FAILED",
 		"MISSING_API_KEY", "INVALID_API_KEY",
-		"PAYMENT_REQUIRED", "FORBIDDEN", "ORGANIZATION_CANCELLED", "ORGANIZATION_PURGED",
-		"NOT_FOUND", "VERSION_NOT_FOUND", "DOCUMENT_NOT_FOUND", "GONE",
-		"VALIDATION_ERROR", "MISSING_DATA", "MISSING_PROJECT_OR_TEMPLATE",
-		"MISSING_TEMPLATE_SLUG", "PROJECT_REQUIRED_FOR_DOCUMENT",
-		"INVALID_VERSION_FORMAT", "VERSION_REQUIRED", "INVALID_VERSION_FOR_KEY_ENV",
-		"QUOTA_EXCEEDED", "OVERAGE_CAP_EXCEEDED",
-		"INTERNAL_ERROR",
+		"FORBIDDEN", "ENVIRONMENT_PROTECTED", "ORGANIZATION_PAYMENT_GRACE",
+		"ORGANIZATION_CANCELLED", "ORGANIZATION_PURGED", "THUMBNAILS_NOT_AVAILABLE",
+		"NOT_FOUND", "PROJECT_NOT_FOUND", "PROJECT_NOT_IN_ENVIRONMENT", "TEMPLATE_NOT_FOUND",
+		"DOCUMENT_NOT_FOUND", "DOCUMENT_GONE",
+		"VALIDATION_ERROR", "MISSING_DATA", "MISSING_TEMPLATE_SLUG", "PROJECT_REQUIRED_FOR_DOCUMENT",
+		"ENVIRONMENT_MISMATCH", "TEMPLATE_ERROR", "EMPTY_DOCUMENT",
+		"RENDER_BODY_TOO_LARGE", "DOCUMENT_TOO_LARGE",
+		"QUOTA_EXCEEDED", "OVERAGE_CAP_EXCEEDED", "RATE_LIMIT_EXCEEDED",
+		"INTERNAL_ERROR", "PUBLISH_IN_PROGRESS", "ORGANIZATION_MIGRATING",
+		"STORAGE_ACCESS_DENIED", "RENDER_TIMEOUT",
 	}
 	errs := make([]errCode, 0, len(codes))
 	for _, c := range codes {

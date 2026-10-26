@@ -34,9 +34,6 @@ func TestPathRender_constants(t *testing.T) {
 	if PathRender != "/v1/render" {
 		t.Errorf("PathRender = %q, want /v1/render", PathRender)
 	}
-	if PathRenderPreview != "/v1/render/preview" {
-		t.Errorf("PathRenderPreview = %q, want /v1/render/preview", PathRenderPreview)
-	}
 }
 
 func TestHeader_namesAreCanonical(t *testing.T) {

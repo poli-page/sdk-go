@@ -87,13 +87,14 @@ func (d *Documents) Preview(ctx context.Context, id string, opts ...option.Reque
 	return &DocumentPreviewResult{HTML: string(html), PageCount: pageCount}, nil
 }
 
-// Thumbnails generates page thumbnails for a stored document. Width is
-// required. Pass [polipage.ThumbnailFormatJPEG] with a Quality value for
-// JPEG output; otherwise PNG is returned.
+// Thumbnails generates page thumbnails for a stored document. Every
+// option is optional: pass a zero [ThumbnailOptions] for the API defaults
+// (400 px wide JPEG, every page).
 //
 // The deployed API expects the options wrapped under a top-level
 // "thumbnails" key on the wire and returns the array under the same key —
-// both are handled here so callers see a plain slice.
+// both are handled here so callers see a plain slice. With no option set
+// the body is {}.
 //
 // Spec §6.3.
 func (d *Documents) Thumbnails(ctx context.Context, id string, options ThumbnailOptions, opts ...option.RequestOption) ([]Thumbnail, error) {
@@ -101,9 +102,12 @@ func (d *Documents) Thumbnails(ctx context.Context, id string, options Thumbnail
 	if err != nil {
 		return nil, err
 	}
-	wire := struct {
-		Thumbnails ThumbnailOptions `json:"thumbnails"`
-	}{Thumbnails: options}
+	var wire struct {
+		Thumbnails *ThumbnailOptions `json:"thumbnails,omitempty"`
+	}
+	if options.Width != 0 || options.Format != "" || options.Quality != 0 || len(options.Pages) > 0 {
+		wire.Thumbnails = &options
+	}
 
 	resp, err := d.client.post(ctx, constants.PathDocumentThumbnails(id), wire, per)
 	if err != nil {
@@ -127,8 +131,8 @@ func (d *Documents) Thumbnails(ctx context.Context, id string, options Thumbnail
 }
 
 // Delete soft-deletes a stored document. The PDF is purged from storage;
-// metadata is retained for audit. Already-deleted documents surface as
-// [ErrGone] (HTTP 410) — use errors.Is to branch on it.
+// metadata is retained for audit. Deleting an already-deleted document
+// also succeeds: the API answers 204 either way.
 //
 // Spec §6.4.
 func (d *Documents) Delete(ctx context.Context, id string, opts ...option.RequestOption) error {

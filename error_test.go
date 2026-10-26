@@ -3,7 +3,12 @@ package polipage
 import (
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -67,16 +72,15 @@ func TestError_errorsIsViaSentinels(t *testing.T) {
 	}{
 		{"NOT_FOUND matches ErrNotFound", &Error{Code: ErrCodeNotFound, StatusCode: 404}, ErrNotFound, true},
 		{"FORBIDDEN matches ErrForbidden", &Error{Code: ErrCodeForbidden, StatusCode: 403}, ErrForbidden, true},
-		{"VERSION_NOT_FOUND matches ErrVersionNotFound", &Error{Code: ErrCodeVersionNotFound, StatusCode: 404}, ErrVersionNotFound, true},
-		{"GONE matches ErrGone", &Error{Code: ErrCodeGone, StatusCode: 410}, ErrGone, true},
+		{"DOCUMENT_GONE matches ErrDocumentGone", &Error{Code: ErrCodeDocumentGone, StatusCode: 410}, ErrDocumentGone, true},
+		{"ORGANIZATION_PURGED does NOT match ErrDocumentGone (distinct 410 codes)", &Error{Code: ErrCodeOrganizationPurged, StatusCode: 410}, ErrDocumentGone, false},
 		{"VALIDATION_ERROR matches ErrValidation", &Error{Code: ErrCodeValidationError, StatusCode: 400}, ErrValidation, true},
 		{"timeout matches ErrTimeout", &Error{Code: ErrCodeTimeout}, ErrTimeout, true},
 		{"aborted matches ErrAborted", &Error{Code: ErrCodeAborted}, ErrAborted, true},
 		{"NOT_FOUND does NOT match ErrForbidden", &Error{Code: ErrCodeNotFound, StatusCode: 404}, ErrForbidden, false},
-		{"PAYMENT_REQUIRED matches ErrPaymentRequired", &Error{Code: ErrCodePaymentRequired, StatusCode: 402}, ErrPaymentRequired, true},
 		{"ORGANIZATION_CANCELLED matches ErrOrganizationCancelled", &Error{Code: ErrCodeOrganizationCancelled, StatusCode: 403}, ErrOrganizationCancelled, true},
 		{"ORGANIZATION_PURGED matches ErrOrganizationPurged", &Error{Code: ErrCodeOrganizationPurged, StatusCode: 410}, ErrOrganizationPurged, true},
-		{"PAYMENT_REQUIRED does NOT match ErrForbidden (distinct lifecycle codes)", &Error{Code: ErrCodePaymentRequired, StatusCode: 402}, ErrForbidden, false},
+		{"ORGANIZATION_PAYMENT_GRACE does NOT match ErrForbidden (distinct lifecycle codes)", &Error{Code: ErrCodeOrganizationPaymentGrace, StatusCode: 403}, ErrForbidden, false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -196,5 +200,56 @@ func TestError_isRetryable(t *testing.T) {
 		if e.IsRetryable() {
 			t.Errorf("IsRetryable(%+v) = true, want false", e)
 		}
+	}
+}
+
+// TestErrorCodes_constantSetMatchesContract reads the ErrCode* constants
+// declared in error.go and checks their wire values are exactly the
+// contract's 31 API codes plus the SDK-internal codes: a removed code
+// left behind or a contract code missing both fail here.
+func TestErrorCodes_constantSetMatchesContract(t *testing.T) {
+	t.Parallel()
+	file, err := parser.ParseFile(token.NewFileSet(), "error.go", nil, 0)
+	if err != nil {
+		t.Fatalf("parse error.go: %v", err)
+	}
+	var got []string
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.CONST {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			vs := spec.(*ast.ValueSpec)
+			for i, name := range vs.Names {
+				lit, ok := vs.Values[i].(*ast.BasicLit)
+				if !strings.HasPrefix(name.Name, "ErrCode") || !ok {
+					continue
+				}
+				v, _ := strconv.Unquote(lit.Value)
+				if !slices.Contains(got, v) {
+					got = append(got, v)
+				}
+			}
+		}
+	}
+	want := []string{
+		// SDK-internal.
+		"invalid_options", "network_error", "timeout", "aborted", "unknown_error", "DOWNLOAD_FAILED", "io_failed",
+		// API codes kept from 0.9.
+		"MISSING_API_KEY", "INVALID_API_KEY", "ORGANIZATION_CANCELLED", "ORGANIZATION_PURGED", "FORBIDDEN",
+		"VALIDATION_ERROR", "MISSING_DATA", "MISSING_TEMPLATE_SLUG", "PROJECT_REQUIRED_FOR_DOCUMENT",
+		"NOT_FOUND", "DOCUMENT_NOT_FOUND", "QUOTA_EXCEEDED", "OVERAGE_CAP_EXCEEDED", "INTERNAL_ERROR",
+		// API codes added with environments.
+		"PUBLISH_IN_PROGRESS", "ENVIRONMENT_MISMATCH", "PROJECT_NOT_IN_ENVIRONMENT", "TEMPLATE_NOT_FOUND",
+		"DOCUMENT_GONE", "ENVIRONMENT_PROTECTED", "ORGANIZATION_PAYMENT_GRACE", "EMPTY_DOCUMENT",
+		"STORAGE_ACCESS_DENIED", "ORGANIZATION_MIGRATING", "PROJECT_NOT_FOUND", "TEMPLATE_ERROR",
+		"THUMBNAILS_NOT_AVAILABLE", "RATE_LIMIT_EXCEEDED", "RENDER_BODY_TOO_LARGE", "DOCUMENT_TOO_LARGE",
+		"RENDER_TIMEOUT",
+	}
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("ErrCode* wire values =\n%v\nwant\n%v", got, want)
 	}
 }

@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Environments replace versions: an API key (`pp_{env}_…`) carries its
+environment and a render uses the project's copy published there. Breaking,
+with no deprecation window.
+
+### Removed
+
+- `Render.Preview`, `PreviewResult`, `InlineModeInput` and the sealed
+  `RenderInput` interface: the API removed `POST /v1/render/preview` and
+  inline-HTML rendering. `Documents.Preview` stays.
+- The `Version` field of the render input and of `DocumentDescriptor`.
+- The `Environment` type and its `EnvironmentSandbox` / `EnvironmentLive`
+  constants.
+- Error codes `VERSION_NOT_FOUND`, `INVALID_VERSION_FORMAT`,
+  `VERSION_REQUIRED`, `INVALID_VERSION_FOR_KEY_ENV`,
+  `MISSING_PROJECT_OR_TEMPLATE`, `GONE` and `PAYMENT_REQUIRED`, and the
+  `ErrVersionNotFound`, `ErrGone` and `ErrPaymentRequired` sentinels.
+
+### Changed
+
+- `ProjectModeInput` is renamed `RenderInput` (a struct) and is the only
+  render input. The request body holds only `project`, `template`, `data`,
+  `metadata`, `format`, `orientation` and `locale`; unset optional fields
+  are omitted.
+- `DocumentDescriptor.Environment` is a plain `string` holding any
+  environment name the API returns (`sandbox`, `live`, `staging`, …).
+- `ThumbnailOptions` fields are all optional: an unset option is not sent
+  and a zero `ThumbnailOptions` sends `{}` (API defaults: 400 px wide
+  JPEG). The SDK does not check bounds.
+- `Documents.Delete` documents that a re-delete succeeds (the API answers
+  `204`).
+
+### Added
+
+- `ThumbnailFormatWebP`.
+- `ErrDocumentGone` sentinel (`410 DOCUMENT_GONE`).
+- Error codes `PUBLISH_IN_PROGRESS`, `ENVIRONMENT_MISMATCH`,
+  `PROJECT_NOT_IN_ENVIRONMENT`, `TEMPLATE_NOT_FOUND`, `DOCUMENT_GONE`,
+  `ENVIRONMENT_PROTECTED`, `ORGANIZATION_PAYMENT_GRACE`, `EMPTY_DOCUMENT`,
+  `STORAGE_ACCESS_DENIED`, `ORGANIZATION_MIGRATING`, `PROJECT_NOT_FOUND`,
+  `TEMPLATE_ERROR`, `THUMBNAILS_NOT_AVAILABLE`, `RATE_LIMIT_EXCEEDED`,
+  `RENDER_BODY_TOO_LARGE`, `DOCUMENT_TOO_LARGE` and `RENDER_TIMEOUT`.
+  `503 PUBLISH_IN_PROGRESS` is retried like any 5xx, honouring
+  `Retry-After`.
+
 ## [0.9.0-rc.1] - 2026-05-21
 
 Release candidate for `v1.0.0`. Behaviour-identical to

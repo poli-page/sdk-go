@@ -20,10 +20,9 @@ import (
 
 client := polipage.NewClient(option.WithAPIKey(apiKey))
 
-// Render namespace
-//   client.Render.PDF, PDFStream, Document → project mode only
-//                                            (Project + Template + Version)
-//   client.Render.Preview                   → both project and inline mode
+// Render namespace (polipage.RenderInput: Project + Template + Data;
+// the project's copy published in the API key's environment is rendered)
+//   client.Render.PDF, PDFStream, Document
 
 // Documents namespace (stored-document lifecycle)
 //   client.Documents.Get, Preview, Thumbnails, Delete

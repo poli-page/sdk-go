@@ -39,62 +39,21 @@ const (
 // with *Error{Code: ErrCodeInvalidOptions}.
 type RenderMetadata = map[string]any
 
-// RenderInput is the marker interface satisfied by [ProjectModeInput] and
-// [InlineModeInput] only. External packages cannot satisfy it (the marker
-// method is unexported) — that is how Render.PDF / PDFStream / Document
-// enforce project-mode-only at compile time.
-type RenderInput interface {
-	isRenderInput()
-}
-
-// Environment is the API environment a stored document belongs to.
-type Environment string
-
-// Document environments.
-const (
-	EnvironmentSandbox Environment = "sandbox"
-	EnvironmentLive    Environment = "live"
-)
-
-// ProjectModeInput renders against a stored project + template by slug.
-// Use [Opt] to set Version with a literal: Version: polipage.Opt("1.0.0").
-type ProjectModeInput struct {
+// RenderInput is the input of every render method: a template of a
+// project, rendered with the project's copy published in the API key's
+// environment. Only these seven fields are sent; unset optional fields are
+// omitted from the wire.
+type RenderInput struct {
 	// Required.
 	Project  string         `json:"project"`
 	Template string         `json:"template"`
 	Data     map[string]any `json:"data"`
 
 	// Optional — omitted from the wire when unset.
-	Version     *string        `json:"version,omitempty"`
 	Format      PageFormat     `json:"format,omitempty"`
 	Orientation Orientation    `json:"orientation,omitempty"`
 	Locale      string         `json:"locale,omitempty"`
 	Metadata    RenderMetadata `json:"metadata,omitempty"`
-}
-
-func (ProjectModeInput) isRenderInput() {}
-
-// InlineModeInput renders raw HTML with no project resolution. Use this
-// with Render.Preview to validate templates before saving them.
-type InlineModeInput struct {
-	Data     map[string]any `json:"data"`
-	Template string         `json:"template"` // raw HTML
-
-	Format      PageFormat     `json:"format,omitempty"`
-	Orientation Orientation    `json:"orientation,omitempty"`
-	Locale      string         `json:"locale,omitempty"`
-	Metadata    RenderMetadata `json:"metadata,omitempty"`
-}
-
-func (InlineModeInput) isRenderInput() {}
-
-// PreviewResult is the result of Render.Preview — paginated HTML, the
-// total page count the engine produced, and the environment that served
-// the request.
-type PreviewResult struct {
-	HTML        string      `json:"html"`
-	TotalPages  int         `json:"totalPages"`
-	Environment Environment `json:"environment"`
 }
 
 // RetryEvent is delivered to the OnRetry hook before each retry sleep.
@@ -105,31 +64,29 @@ type RetryEvent = clientconfig.RetryEvent
 // DocumentPreviewResult is the result of [Documents.Preview] — the
 // paginated HTML for an already-stored document and the page count the
 // engine emitted at render time.
-//
-// Note: the field is PageCount (singular) here, distinct from
-// [PreviewResult.TotalPages] returned by [Render.Preview]. The deployed
-// API uses different field shapes for the two endpoints.
 type DocumentPreviewResult struct {
 	HTML      string
 	PageCount int
 }
 
-// ThumbnailFormat is the image format for a generated thumbnail. PNG is
-// the default; JPEG accepts an additional Quality option.
+// ThumbnailFormat is the image format for a generated thumbnail. The API
+// default is JPEG, which also accepts a Quality option.
 type ThumbnailFormat string
 
 // Canonical thumbnail formats.
 const (
-	ThumbnailFormatPNG  ThumbnailFormat = "png"
 	ThumbnailFormatJPEG ThumbnailFormat = "jpeg"
+	ThumbnailFormatWebP ThumbnailFormat = "webp"
+	ThumbnailFormatPNG  ThumbnailFormat = "png"
 )
 
-// ThumbnailOptions configures a thumbnail-generation request. Width is
-// required; other fields default per spec §6.3.
+// ThumbnailOptions configures a thumbnail-generation request. Every field
+// is optional: a zero value is not sent and the API applies its default.
+// The SDK does not check bounds; the API answers 400 VALIDATION_ERROR.
 type ThumbnailOptions struct {
-	// Width is the thumbnail width in pixels. Required.
-	Width int `json:"width"`
-	// Format selects PNG (default) or JPEG output.
+	// Width is the thumbnail width in pixels, 50-2000. API default: 400.
+	Width int `json:"width,omitempty"`
+	// Format selects jpeg, webp or png. API default: jpeg.
 	Format ThumbnailFormat `json:"format,omitempty"`
 	// Quality is the JPEG quality 1-100. Only valid when Format is JPEG.
 	Quality int `json:"quality,omitempty"`
@@ -149,12 +106,12 @@ type Thumbnail struct {
 }
 
 // DocumentDescriptor is a stored document returned by [Render.Document]
-// and (in a future phase) Documents.Get. Top-level fields are
-// system-controlled; Metadata echoes caller-supplied data.
+// and [Documents.Get]. Top-level fields are system-controlled; Metadata
+// echoes caller-supplied data.
 //
 // Nullable wire fields (ProjectID, ProjectSlug, TemplateID, TemplateSlug,
-// Version, APIKeyID, Orientation, Locale) are *string so the SDK can
-// distinguish JSON null from an empty string.
+// APIKeyID, Orientation, Locale) are *string so the SDK can distinguish
+// JSON null from an empty string.
 type DocumentDescriptor struct {
 	DocumentID     string `json:"documentId"`
 	OrganizationID string `json:"organizationId"`
@@ -163,11 +120,13 @@ type DocumentDescriptor struct {
 	ProjectSlug  *string `json:"projectSlug"`
 	TemplateID   *string `json:"templateId"`
 	TemplateSlug *string `json:"templateSlug"`
-	Version      *string `json:"version"`
 	APIKeyID     *string `json:"apiKeyId"`
 
-	Environment Environment `json:"environment"`
-	Format      PageFormat  `json:"format"`
+	// Environment is the name of the environment the document was rendered
+	// in ("sandbox", "live", or any other environment of the organization),
+	// returned as the API sent it.
+	Environment string     `json:"environment"`
+	Format      PageFormat `json:"format"`
 
 	Orientation *string `json:"orientation"`
 	Locale      *string `json:"locale"`
@@ -193,10 +152,8 @@ type DocumentDescriptor struct {
 	client *Client
 }
 
-// Opt returns a pointer to v. Use it to set optional pointer-typed fields
-// with literal values:
-//
-//	polipage.ProjectModeInput{Version: polipage.Opt("1.0.0")}
+// Opt returns a pointer to v, for optional pointer-typed values set from a
+// literal: polipage.Opt("fr-FR").
 //
 // Named for the intent (optional fields) rather than the mechanic
 // (pointers) — Go has no inline pointer-to-literal syntax.

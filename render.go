@@ -14,46 +14,10 @@ import (
 	"github.com/poli-page/sdk-go/option"
 )
 
-// Render is the render namespace exposed as client.Render. Phase 3 ships
-// Preview + PDF + PDFStream + Document, the full spec §5.1–§5.3 surface.
+// Render is the render namespace exposed as client.Render: PDF,
+// PDFStream and Document, the spec §5 surface.
 type Render struct {
 	client *Client
-}
-
-// Preview generates paginated HTML from the input. Accepts both
-// [ProjectModeInput] and [InlineModeInput] — that is the only render
-// method that allows inline-mode HTML.
-//
-// Variadic options apply per-call. The most useful one is
-// [option.WithIdempotencyKey] when the caller has a natural identifier
-// (e.g. an invoice number) and wants to override the auto-generated
-// UUID4.
-func (r *Render) Preview(ctx context.Context, in RenderInput, opts ...option.RequestOption) (*PreviewResult, error) {
-	if err := validateMetadata(metadataOf(in)); err != nil {
-		return nil, err
-	}
-	per, err := resolvePerCall(opts)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := r.client.post(ctx, constants.PathRenderPreview, in, per)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	var result PreviewResult
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		_, _ = io.Copy(io.Discard, resp.Body)
-		return nil, &Error{
-			Code:       ErrCodeInternalError,
-			StatusCode: resp.StatusCode,
-			Message:    "failed to decode response body: " + err.Error(),
-			Cause:      err,
-		}
-	}
-	return &result, nil
 }
 
 // Document renders a PDF, stores it server-side, and returns the
@@ -61,11 +25,13 @@ func (r *Render) Preview(ctx context.Context, in RenderInput, opts ...option.Req
 // when you need them, or use [Render.PDF] / [Render.PDFStream] for the
 // one-call shortcut.
 //
-// Accepts [ProjectModeInput] only. Inline mode (raw HTML) is rejected at
-// compile time by the signature and again at run time defensively.
-func (r *Render) Document(ctx context.Context, in ProjectModeInput, opts ...option.RequestOption) (*DocumentDescriptor, error) {
+// The API renders the project's copy published in the API key's
+// environment. Variadic options apply per-call; the most useful one is
+// [option.WithIdempotencyKey] when the caller has a natural identifier
+// (e.g. an invoice number) and wants to override the auto-generated UUID4.
+func (r *Render) Document(ctx context.Context, in RenderInput, opts ...option.RequestOption) (*DocumentDescriptor, error) {
 	if in.Project == "" {
-		return nil, &Error{Code: ErrCodeProjectRequiredForDocument, Message: "Render.Document/PDF/PDFStream require ProjectModeInput.Project"}
+		return nil, &Error{Code: ErrCodeProjectRequiredForDocument, Message: "Render.Document/PDF/PDFStream require RenderInput.Project"}
 	}
 	if err := validateMetadata(in.Metadata); err != nil {
 		return nil, err
@@ -101,7 +67,7 @@ func (r *Render) Document(ctx context.Context, in ProjectModeInput, opts ...opti
 // PDF renders a PDF and returns the raw bytes. Two HTTP calls under the
 // hood: POST /v1/render to produce a stored document, then GET
 // PresignedPDFURL to fetch the bytes.
-func (r *Render) PDF(ctx context.Context, in ProjectModeInput, opts ...option.RequestOption) ([]byte, error) {
+func (r *Render) PDF(ctx context.Context, in RenderInput, opts ...option.RequestOption) ([]byte, error) {
 	doc, err := r.Document(ctx, in, opts...)
 	if err != nil {
 		return nil, err
@@ -115,7 +81,7 @@ func (r *Render) PDF(ctx context.Context, in ProjectModeInput, opts ...option.Re
 //
 // The caller MUST close the returned ReadCloser when done, even on early
 // return paths.
-func (r *Render) PDFStream(ctx context.Context, in ProjectModeInput, opts ...option.RequestOption) (io.ReadCloser, error) {
+func (r *Render) PDFStream(ctx context.Context, in RenderInput, opts ...option.RequestOption) (io.ReadCloser, error) {
 	doc, err := r.Document(ctx, in, opts...)
 	if err != nil {
 		return nil, err
@@ -231,19 +197,6 @@ func resolvePerCall(opts []option.RequestOption) (clientconfig.Config, error) {
 		per.IdempotencyKey = uuid.New()
 	}
 	return per, nil
-}
-
-// metadataOf returns the Metadata field from either render-input variant.
-// Returns nil for unrecognised inputs — the sealed marker interface
-// guarantees only [ProjectModeInput] and [InlineModeInput] reach this.
-func metadataOf(in RenderInput) RenderMetadata {
-	switch v := in.(type) {
-	case ProjectModeInput:
-		return v.Metadata
-	case InlineModeInput:
-		return v.Metadata
-	}
-	return nil
 }
 
 // validateMetadata checks that every value in m is a primitive
