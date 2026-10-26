@@ -28,10 +28,9 @@ const (
 // API path templates. Static endpoints are exported as constants; dynamic
 // endpoints (those containing a document ID) are exposed as functions that
 // URL-encode the ID via net/url's PathEscape.
-const (
-	PathRender        = "/v1/render"
-	PathRenderPreview = "/v1/render/preview"
-)
+
+// PathRender is the POST path that renders and stores a document.
+const PathRender = "/v1/render"
 
 // PathDocument returns the GET / DELETE path for a single stored document.
 func PathDocument(id string) string {

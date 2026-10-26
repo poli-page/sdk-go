@@ -17,9 +17,18 @@ import (
 // Integration tests run against a live API. Gated by POLI_PAGE_API_KEY.
 // Run with: go test -tags=integration ./...
 //
-// Set POLI_PAGE_TEST_BASE_URL to target an alternate environment; otherwise
-// the SDK default applies. The getting-started/welcome/1.0.0 template is
-// provisioned for every org so it works out of the box for any pp_test_* key.
+// Set POLI_PAGE_TEST_BASE_URL to target an alternate API host; otherwise
+// the SDK default applies. The getting-started project's welcome template
+// is provisioned in every organization's sandbox, so it works out of the
+// box for any pp_sandbox_* key.
+
+// envOr returns the environment variable key, or fallback when it is unset.
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
 
 func integrationOpts(apiKey string) []option.RequestOption {
 	opts := []option.RequestOption{option.WithAPIKey(apiKey)}
@@ -38,49 +47,10 @@ func integrationClient(t *testing.T) *polipage.Client {
 	return polipage.NewClient(integrationOpts(apiKey)...)
 }
 
-func TestIntegration_Render_Preview_inlineMode(t *testing.T) {
-	client := integrationClient(t)
-	res, err := client.Render.Preview(context.Background(), polipage.InlineModeInput{
-		Template: "<p>{{ name }}</p>",
-		Data:     map[string]any{"name": "Preview Test"},
-	})
-	if err != nil {
-		t.Fatalf("Preview err = %v", err)
-	}
-	if res.HTML == "" {
-		t.Error("Preview returned empty HTML")
-	}
-	// Deployed API returns totalPages: 0 for tiny inline content (no page
-	// breaks). Just confirm it is non-negative — mirror Node's tolerance.
-	if res.TotalPages < 0 {
-		t.Errorf("TotalPages = %d, want >= 0", res.TotalPages)
-	}
-	if res.Environment != polipage.EnvironmentSandbox && res.Environment != polipage.EnvironmentLive {
-		t.Errorf("Environment = %q, want sandbox|live", res.Environment)
-	}
-}
-
-func TestIntegration_Render_Preview_projectMode(t *testing.T) {
-	client := integrationClient(t)
-	res, err := client.Render.Preview(context.Background(), polipage.ProjectModeInput{
+func integrationInput() polipage.RenderInput {
+	return polipage.RenderInput{
 		Project:  envOr("POLI_PAGE_TEST_PROJECT", "getting-started"),
 		Template: envOr("POLI_PAGE_TEST_TEMPLATE", "welcome"),
-		Version:  polipage.Opt(envOr("POLI_PAGE_TEST_VERSION", "1.0.0")),
-		Data:     map[string]any{"name": "Integration Test"},
-	})
-	if err != nil {
-		t.Fatalf("Preview err = %v", err)
-	}
-	if res.HTML == "" {
-		t.Error("Preview returned empty HTML")
-	}
-}
-
-func integrationInput() polipage.ProjectModeInput {
-	return polipage.ProjectModeInput{
-		Project:  envOr("POLI_PAGE_TEST_PROJECT", "getting-started"),
-		Template: envOr("POLI_PAGE_TEST_TEMPLATE", "welcome"),
-		Version:  polipage.Opt(envOr("POLI_PAGE_TEST_VERSION", "1.0.0")),
 		Data:     map[string]any{"name": "Integration Test"},
 	}
 }
@@ -146,7 +116,7 @@ func TestIntegration_Render_PDF_badAPIKeyReturnsAuthError(t *testing.T) {
 	if os.Getenv("POLI_PAGE_API_KEY") == "" {
 		t.Skip("POLI_PAGE_API_KEY not set — skipping integration test")
 	}
-	opts := append(integrationOpts("pp_test_invalid_xxx"), option.WithMaxRetries(0))
+	opts := append(integrationOpts("pp_sandbox_00000000000000000000000000000000"), option.WithMaxRetries(0))
 	client := polipage.NewClient(opts...)
 	_, err := client.Render.PDF(context.Background(), integrationInput())
 	if err == nil {

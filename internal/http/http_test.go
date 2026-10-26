@@ -39,7 +39,7 @@ func TestBuildURL_addsLeadingSlashWhenMissing(t *testing.T) {
 func TestBuildHeaders_alwaysSetsAcceptJSON(t *testing.T) {
 	t.Parallel()
 	for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodDelete} {
-		h := BuildHeaders(method, "pp_test_x", "idem-1", userAgent)
+		h := BuildHeaders(method, "pp_sandbox_x", "idem-1", userAgent)
 		if got := h.Get("Accept"); got != "application/json" {
 			t.Errorf("method=%s Accept=%q, want application/json", method, got)
 		}
@@ -48,7 +48,7 @@ func TestBuildHeaders_alwaysSetsAcceptJSON(t *testing.T) {
 
 func TestBuildHeaders_postSetsContentTypeJSON(t *testing.T) {
 	t.Parallel()
-	h := BuildHeaders(http.MethodPost, "pp_test_x", "idem-1", userAgent)
+	h := BuildHeaders(http.MethodPost, "pp_sandbox_x", "idem-1", userAgent)
 	if got := h.Get("Content-Type"); got != "application/json" {
 		t.Fatalf("Content-Type = %q, want application/json", got)
 	}
@@ -56,15 +56,15 @@ func TestBuildHeaders_postSetsContentTypeJSON(t *testing.T) {
 
 func TestBuildHeaders_setsAuthorizationBearer(t *testing.T) {
 	t.Parallel()
-	h := BuildHeaders(http.MethodPost, "pp_test_xyz", "idem-1", userAgent)
-	if got := h.Get("Authorization"); got != "Bearer pp_test_xyz" {
-		t.Fatalf("Authorization = %q, want Bearer pp_test_xyz", got)
+	h := BuildHeaders(http.MethodPost, "pp_sandbox_xyz", "idem-1", userAgent)
+	if got := h.Get("Authorization"); got != "Bearer pp_sandbox_xyz" {
+		t.Fatalf("Authorization = %q, want Bearer pp_sandbox_xyz", got)
 	}
 }
 
 func TestBuildHeaders_setsUserAgentVerbatim(t *testing.T) {
 	t.Parallel()
-	h := BuildHeaders(http.MethodPost, "pp_test_x", "idem-1", "custom-ua/9.9.9")
+	h := BuildHeaders(http.MethodPost, "pp_sandbox_x", "idem-1", "custom-ua/9.9.9")
 	if got := h.Get("User-Agent"); got != "custom-ua/9.9.9" {
 		t.Fatalf("User-Agent = %q, want custom-ua/9.9.9", got)
 	}
@@ -72,7 +72,7 @@ func TestBuildHeaders_setsUserAgentVerbatim(t *testing.T) {
 
 func TestBuildHeaders_postSetsIdempotencyKey(t *testing.T) {
 	t.Parallel()
-	h := BuildHeaders(http.MethodPost, "pp_test_x", "idem-abc-123", userAgent)
+	h := BuildHeaders(http.MethodPost, "pp_sandbox_x", "idem-abc-123", userAgent)
 	if got := h.Get("Idempotency-Key"); got != "idem-abc-123" {
 		t.Fatalf("Idempotency-Key = %q, want idem-abc-123", got)
 	}
@@ -80,7 +80,7 @@ func TestBuildHeaders_postSetsIdempotencyKey(t *testing.T) {
 
 func TestBuildHeaders_postSkipsIdempotencyKeyWhenEmpty(t *testing.T) {
 	t.Parallel()
-	h := BuildHeaders(http.MethodPost, "pp_test_x", "", userAgent)
+	h := BuildHeaders(http.MethodPost, "pp_sandbox_x", "", userAgent)
 	if values, ok := h["Idempotency-Key"]; ok {
 		t.Fatalf("Idempotency-Key should be absent when empty, got %v", values)
 	}
@@ -88,15 +88,15 @@ func TestBuildHeaders_postSkipsIdempotencyKeyWhenEmpty(t *testing.T) {
 
 func TestBuildHeaders_getOmitsContentTypeAndIdempotencyKey(t *testing.T) {
 	t.Parallel()
-	h := BuildHeaders(http.MethodGet, "pp_test_x", "idem-ignored", userAgent)
+	h := BuildHeaders(http.MethodGet, "pp_sandbox_x", "idem-ignored", userAgent)
 	if _, ok := h["Content-Type"]; ok {
 		t.Errorf("GET should not set Content-Type, got %q", h.Get("Content-Type"))
 	}
 	if _, ok := h["Idempotency-Key"]; ok {
 		t.Errorf("GET should not set Idempotency-Key, got %q", h.Get("Idempotency-Key"))
 	}
-	if got := h.Get("Authorization"); got != "Bearer pp_test_x" {
-		t.Errorf("GET Authorization = %q, want Bearer pp_test_x", got)
+	if got := h.Get("Authorization"); got != "Bearer pp_sandbox_x" {
+		t.Errorf("GET Authorization = %q, want Bearer pp_sandbox_x", got)
 	}
 	if got := h.Get("Accept"); got != "application/json" {
 		t.Errorf("GET Accept = %q, want application/json", got)
@@ -108,7 +108,7 @@ func TestBuildHeaders_getOmitsContentTypeAndIdempotencyKey(t *testing.T) {
 
 func TestBuildHeaders_deleteOmitsContentTypeAndIdempotencyKey(t *testing.T) {
 	t.Parallel()
-	h := BuildHeaders(http.MethodDelete, "pp_test_x", "idem-ignored", userAgent)
+	h := BuildHeaders(http.MethodDelete, "pp_sandbox_x", "idem-ignored", userAgent)
 	if _, ok := h["Content-Type"]; ok {
 		t.Errorf("DELETE should not set Content-Type")
 	}

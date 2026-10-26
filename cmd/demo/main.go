@@ -6,9 +6,9 @@
 //
 // Walks every public method of the SDK in the order recommended for SDK
 // porters (see sdk-node/demo/README.md "Notes for SDK porters") and
-// writes the results under ./output/. Uses the auto-provisioned
-// getting-started/welcome/1.0.0 template — no project setup required
-// for any newcomer with a fresh pp_test_* key.
+// writes the results under ./output/. Uses the getting-started project's
+// welcome template, provisioned in every organization's sandbox — no
+// project setup required for any newcomer with a fresh pp_sandbox_* key.
 package main
 
 import (
@@ -30,16 +30,15 @@ const (
 	envFileName    = ".env"
 	defaultBaseURL = "https://api.poli.page"
 	outputDir      = "output"
-	totalSteps     = 10
+	totalSteps     = 9
 )
 
 // projectInput is the canonical demo input — getting-started/welcome is
 // auto-provisioned in every Poli Page org.
-func projectInput() polipage.ProjectModeInput {
-	return polipage.ProjectModeInput{
+func projectInput() polipage.RenderInput {
+	return polipage.RenderInput{
 		Project:  "getting-started",
 		Template: "welcome",
-		Version:  polipage.Opt("1.0.0"),
 		Data:     map[string]any{"name": "SDK Demo"},
 	}
 }
@@ -107,22 +106,8 @@ func run() error {
 	}
 	fmt.Printf("  wrote %s\n", fileLink(filePath))
 
-	// 4. Render.Preview — paginated HTML (inline mode here, exercises both modes since project mode is already covered above).
-	step(4, "Render.Preview — paginated HTML (inline mode)")
-	preview, err := client.Render.Preview(ctx, polipage.InlineModeInput{
-		Template: "<html><body><h1>{{ name }}</h1><p>Hello from inline mode</p></body></html>",
-		Data:     map[string]any{"name": "SDK Demo"},
-	})
-	if err != nil {
-		return fmt.Errorf("Render.Preview: %w", err)
-	}
-	if err := writeArtifactString("preview.html", preview.HTML); err != nil {
-		return err
-	}
-	fmt.Printf("  %d total pages, %d chars HTML\n", preview.TotalPages, len(preview.HTML))
-
-	// 5. Render.Document — render + store, return descriptor.
-	step(5, "Render.Document — render + store, return descriptor")
+	// 4. Render.Document — render + store, return descriptor.
+	step(4, "Render.Document — render + store, return descriptor")
 	doc, err := client.Render.Document(ctx, projectInput())
 	if err != nil {
 		return fmt.Errorf("Render.Document: %w", err)
@@ -130,16 +115,16 @@ func run() error {
 	fmt.Printf("  documentId: %s\n", bold(doc.DocumentID))
 	fmt.Printf("  pages=%d sizeBytes=%d environment=%s\n", doc.PageCount, doc.SizeBytes, doc.Environment)
 
-	// 6. Documents.Get — fetch fresh descriptor (presigned URL reissued).
-	step(6, "Documents.Get — fetch a fresh descriptor")
+	// 5. Documents.Get — fetch fresh descriptor (presigned URL reissued).
+	step(5, "Documents.Get — fetch a fresh descriptor")
 	fresh, err := client.Documents.Get(ctx, doc.DocumentID)
 	if err != nil {
 		return fmt.Errorf("Documents.Get: %w", err)
 	}
 	fmt.Printf("  documentId: %s expiresAt=%s\n", fresh.DocumentID, fresh.ExpiresAt)
 
-	// 7. Documents.Thumbnails — tier-gated; tolerate THUMBNAILS_NOT_AVAILABLE on Free.
-	step(7, "Documents.Thumbnails — generate thumbnails (tier-gated)")
+	// 6. Documents.Thumbnails — tier-gated; tolerate THUMBNAILS_NOT_AVAILABLE on Free.
+	step(6, "Documents.Thumbnails — generate thumbnails (tier-gated)")
 	thumbs, err := client.Documents.Thumbnails(ctx, doc.DocumentID, polipage.ThumbnailOptions{
 		Width:  320,
 		Format: polipage.ThumbnailFormatPNG,
@@ -153,8 +138,8 @@ func run() error {
 		return fmt.Errorf("Documents.Thumbnails: %w", err)
 	}
 
-	// 8. Documents.Preview — stored HTML + page count from response header.
-	step(8, "Documents.Preview — stored HTML + page count")
+	// 7. Documents.Preview — stored HTML + page count from response header.
+	step(7, "Documents.Preview — stored HTML + page count")
 	stored, err := client.Documents.Preview(ctx, doc.DocumentID)
 	if err != nil {
 		return fmt.Errorf("Documents.Preview: %w", err)
@@ -164,20 +149,19 @@ func run() error {
 	}
 	fmt.Printf("  %d page(s), %d chars HTML\n", stored.PageCount, len(stored.HTML))
 
-	// 9. Documents.Delete — soft-delete the document.
-	step(9, "Documents.Delete — soft-delete the stored document")
+	// 8. Documents.Delete — soft-delete the document.
+	step(8, "Documents.Delete — soft-delete the stored document")
 	if err := client.Documents.Delete(ctx, doc.DocumentID); err != nil {
 		return fmt.Errorf("Documents.Delete: %w", err)
 	}
 	fmt.Printf("  %s deleted %s\n", green("✔"), doc.DocumentID)
 
-	// 10. Error path — deliberately trigger a 400.
-	step(10, "Error path — deliberately trigger INVALID_VERSION_FORMAT")
+	// 9. Error path — deliberately trigger a 404.
+	step(9, "Error path — deliberately trigger TEMPLATE_NOT_FOUND")
 	fmt.Printf("  %s This step is intentional — the SDK is about to fail.\n", yellow("⚠"))
-	_, err = client.Render.PDF(ctx, polipage.ProjectModeInput{
-		Project: "getting-started", Template: "welcome",
-		Version: polipage.Opt("banana"),
-		Data:    map[string]any{},
+	_, err = client.Render.PDF(ctx, polipage.RenderInput{
+		Project: "getting-started", Template: "does-not-exist",
+		Data: map[string]any{},
 	})
 	if err == nil {
 		fmt.Printf("  %s unexpected: the bad call succeeded\n", red("✗"))
@@ -239,8 +223,8 @@ func promptForAPIKey() (string, error) {
 	fmt.Println(yellow(bold("   No POLI_PAGE_API_KEY found.")))
 	fmt.Println(rule)
 	fmt.Println()
-	fmt.Println("   This demo needs a test key (" + cyan("pp_test_*") + ") to talk to")
-	fmt.Println("   the Poli Page API. Test keys never bill or send real documents.")
+	fmt.Println("   This demo needs a sandbox key (" + cyan("pp_sandbox_*") + ") to talk to")
+	fmt.Println("   the Poli Page API. Sandbox keys never bill or send real documents.")
 	fmt.Println()
 	fmt.Println(bold("   How to get one:"))
 	fmt.Println("     1. Sign in at " + cyan("https://app.poli.page"))
@@ -248,14 +232,14 @@ func promptForAPIKey() (string, error) {
 	fmt.Println("          " + cyan("https://app.poli.page/orgs/{YOUR_ORG}/keys"))
 	fmt.Println(dim("        (replace {YOUR_ORG} with your org slug — visible in the"))
 	fmt.Println(dim("         dashboard URL once you're signed in)"))
-	fmt.Println("     3. Click \"Create key\" and copy the value (starts with " + cyan("pp_test_") + ").")
+	fmt.Println("     3. Click \"Create key\" and copy the value (starts with " + cyan("pp_sandbox_") + ").")
 	fmt.Println()
 	fmt.Println("   Paste it below — we'll save it to " + cyan(envFileName) + " so future runs")
 	fmt.Println("   pick it up automatically. (You can also set " + dim("POLI_PAGE_API_KEY") +
 		" in your")
 	fmt.Println("   shell — that wins over the file.)")
 	fmt.Println()
-	fmt.Print(bold("   Paste your pp_test_* key") + " (or Ctrl-C to cancel): ")
+	fmt.Print(bold("   Paste your pp_sandbox_* key") + " (or Ctrl-C to cancel): ")
 
 	reader := bufio.NewReader(os.Stdin)
 	line, err := reader.ReadString('\n')
@@ -263,8 +247,8 @@ func promptForAPIKey() (string, error) {
 		return "", fmt.Errorf("read key: %w", err)
 	}
 	key := strings.TrimSpace(line)
-	if !strings.HasPrefix(key, "pp_test_") {
-		return "", fmt.Errorf("expected a key starting with pp_test_; got %q", key)
+	if key == "" {
+		return "", errors.New("no key entered")
 	}
 	if err := appendEnvFile(envFileName, "POLI_PAGE_API_KEY", key); err != nil {
 		return "", fmt.Errorf("save key to %s: %w", envFileName, err)

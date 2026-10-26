@@ -34,14 +34,14 @@ func ExampleNewClient() {
 	_ = client
 }
 
-// ExampleRender_PDF renders a project-mode document into a []byte. Two
-// HTTP calls under the hood; one from the caller's point of view.
+// ExampleRender_PDF renders a template of a project into a []byte, using
+// the project's copy published in the API key's environment. Two HTTP
+// calls under the hood; one from the caller's point of view.
 func ExampleRender_PDF() {
 	client := polipage.NewClient(option.WithAPIKey(os.Getenv("POLI_PAGE_API_KEY")))
-	pdf, err := client.Render.PDF(context.Background(), polipage.ProjectModeInput{
+	pdf, err := client.Render.PDF(context.Background(), polipage.RenderInput{
 		Project:  "billing",
 		Template: "invoice",
-		Version:  polipage.Opt("1.0.0"),
 		Data:     map[string]any{"invoiceNumber": "INV-001"},
 	})
 	if err != nil {
@@ -57,10 +57,9 @@ func ExampleRender_PDF_withIdempotencyKey() {
 	client := polipage.NewClient(option.WithAPIKey(os.Getenv("POLI_PAGE_API_KEY")))
 	_, _ = client.Render.PDF(
 		context.Background(),
-		polipage.ProjectModeInput{
+		polipage.RenderInput{
 			Project: "billing", Template: "invoice",
-			Version: polipage.Opt("1.0.0"),
-			Data:    map[string]any{"invoiceNumber": "INV-001"},
+			Data: map[string]any{"invoiceNumber": "INV-001"},
 		},
 		option.WithIdempotencyKey("inv-INV-001"),
 	)
@@ -71,10 +70,9 @@ func ExampleRender_PDF_withIdempotencyKey() {
 // The caller MUST close the returned ReadCloser.
 func ExampleRender_PDFStream() {
 	client := polipage.NewClient(option.WithAPIKey(os.Getenv("POLI_PAGE_API_KEY")))
-	body, err := client.Render.PDFStream(context.Background(), polipage.ProjectModeInput{
+	body, err := client.Render.PDFStream(context.Background(), polipage.RenderInput{
 		Project: "billing", Template: "invoice",
-		Version: polipage.Opt("1.0.0"),
-		Data:    map[string]any{"invoiceNumber": "INV-001"},
+		Data: map[string]any{"invoiceNumber": "INV-001"},
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -86,32 +84,15 @@ func ExampleRender_PDFStream() {
 	_, _ = io.Copy(out, body)
 }
 
-// ExampleRender_Preview generates paginated HTML. Unlike PDF/PDFStream/
-// Document, Preview accepts both [polipage.ProjectModeInput] and
-// [polipage.InlineModeInput] — useful for validating raw templates
-// before saving them.
-func ExampleRender_Preview() {
-	client := polipage.NewClient(option.WithAPIKey(os.Getenv("POLI_PAGE_API_KEY")))
-	res, err := client.Render.Preview(context.Background(), polipage.InlineModeInput{
-		Template: "<html><body><h1>{{ name }}</h1></body></html>",
-		Data:     map[string]any{"name": "Mickael"},
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Printf("%d page(s), %d chars HTML\n", res.TotalPages, len(res.HTML))
-}
-
 // ExampleRender_Document stores the document server-side and returns its
 // descriptor without auto-fetching the PDF bytes. Use when you want to
 // persist the documentId for later access (preview, thumbnails,
 // re-download) without paying for the bytes up front.
 func ExampleRender_Document() {
 	client := polipage.NewClient(option.WithAPIKey(os.Getenv("POLI_PAGE_API_KEY")))
-	doc, err := client.Render.Document(context.Background(), polipage.ProjectModeInput{
+	doc, err := client.Render.Document(context.Background(), polipage.RenderInput{
 		Project: "billing", Template: "invoice",
-		Version: polipage.Opt("1.0.0"),
-		Data:    map[string]any{"invoiceNumber": "INV-001"},
+		Data: map[string]any{"invoiceNumber": "INV-001"},
 		// Metadata is echoed back on Documents.Get — primitives only.
 		Metadata: polipage.RenderMetadata{"customerId": "cust_123"},
 	})
@@ -149,10 +130,10 @@ func ExampleDocuments_Preview() {
 	fmt.Printf("%d page(s), %d chars HTML\n", res.PageCount, len(res.HTML))
 }
 
-// ExampleDocuments_Thumbnails generates page thumbnails. Pass
-// [polipage.ThumbnailFormatJPEG] with a Quality value for JPEG output;
-// otherwise PNG is returned. Tier-gated on the API — Free tier returns
-// THUMBNAILS_NOT_AVAILABLE.
+// ExampleDocuments_Thumbnails generates page thumbnails. Every option is
+// optional: a zero [polipage.ThumbnailOptions] gets the API defaults
+// (400 px wide JPEG, every page). Tier-gated on the API — Free tier
+// returns THUMBNAILS_NOT_AVAILABLE.
 func ExampleDocuments_Thumbnails() {
 	client := polipage.NewClient(option.WithAPIKey(os.Getenv("POLI_PAGE_API_KEY")))
 	thumbs, err := client.Documents.Thumbnails(
@@ -160,7 +141,7 @@ func ExampleDocuments_Thumbnails() {
 		"doc_abc123",
 		polipage.ThumbnailOptions{
 			Width:  840,
-			Format: polipage.ThumbnailFormatPNG,
+			Format: polipage.ThumbnailFormatWebP,
 			Pages:  []int{1, 2, 3},
 		},
 	)
@@ -172,8 +153,9 @@ func ExampleDocuments_Thumbnails() {
 	}
 }
 
-// ExampleDocuments_Delete soft-deletes a stored document. Subsequent
-// reads of the same documentId surface as [polipage.ErrGone].
+// ExampleDocuments_Delete soft-deletes a stored document. Deleting it
+// again also succeeds; subsequent reads of the same documentId surface
+// as [polipage.ErrDocumentGone].
 func ExampleDocuments_Delete() {
 	client := polipage.NewClient(option.WithAPIKey(os.Getenv("POLI_PAGE_API_KEY")))
 	if err := client.Documents.Delete(context.Background(), "doc_abc123"); err != nil {
@@ -205,10 +187,9 @@ func ExampleRenderToFile() {
 	err := polipage.RenderToFile(
 		context.Background(),
 		client,
-		polipage.ProjectModeInput{
+		polipage.RenderInput{
 			Project: "billing", Template: "invoice",
-			Version: polipage.Opt("1.0.0"),
-			Data:    map[string]any{"invoiceNumber": "INV-001"},
+			Data: map[string]any{"invoiceNumber": "INV-001"},
 		},
 		"out/invoice.pdf",
 	)
@@ -217,27 +198,13 @@ func ExampleRenderToFile() {
 	}
 }
 
-// ExampleOpt shows the common use of the Opt helper: turning a literal
-// value into a *T for optional pointer-typed fields like
-// [polipage.ProjectModeInput.Version].
-func ExampleOpt() {
-	in := polipage.ProjectModeInput{
-		Project:  "billing",
-		Template: "invoice",
-		Version:  polipage.Opt("1.0.0"),
-		Data:     map[string]any{},
-	}
-	fmt.Println(*in.Version)
-	// Output: 1.0.0
-}
-
 // ExampleError_typedInspection demonstrates the two idiomatic ways to
 // branch on errors returned by the SDK: errors.Is against the
 // package-level sentinels for quick checks, and errors.As to inspect
 // the full *Error value (Code, StatusCode, RequestID, Cause).
 func ExampleError_typedInspection() {
-	client := polipage.NewClient(option.WithAPIKey("pp_test_bad_key"))
-	_, err := client.Render.PDF(context.Background(), polipage.ProjectModeInput{
+	client := polipage.NewClient(option.WithAPIKey("pp_sandbox_bad_key"))
+	_, err := client.Render.PDF(context.Background(), polipage.RenderInput{
 		Project: "x", Template: "y", Data: map[string]any{},
 	})
 	if errors.Is(err, polipage.ErrUnauthorized) {
@@ -259,10 +226,9 @@ func ExampleNewClient_withTimeout() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	_, _ = client.Render.PDF(ctx, polipage.ProjectModeInput{
+	_, _ = client.Render.PDF(ctx, polipage.RenderInput{
 		Project: "billing", Template: "invoice",
-		Version: polipage.Opt("1.0.0"),
-		Data:    map[string]any{},
+		Data: map[string]any{},
 	})
 }
 

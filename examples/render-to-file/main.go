@@ -18,7 +18,7 @@ func main() {
 	err := polipage.RenderToFile(
 		context.Background(),
 		client,
-		polipage.ProjectModeInput{
+		polipage.RenderInput{
 			Project:  "billing",
 			Template: "invoice",
 			Data:     map[string]any{"invoiceNumber": "INV-001", "total": 1280},

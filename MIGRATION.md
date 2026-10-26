@@ -20,10 +20,10 @@ import (
 
 client := polipage.NewClient(option.WithAPIKey(apiKey))
 
-// Render namespace
-//   client.Render.PDF, PDFStream, Document → project mode only
-//                                            (Project + Template + Version)
-//   client.Render.Preview                   → both project and inline mode
+// Render namespace (polipage.RenderInput: Project, Template, Data required;
+// Metadata, Format, Orientation, Locale optional, omitted when unset;
+// the project's copy published in the API key's environment is rendered)
+//   client.Render.PDF, PDFStream, Document
 
 // Documents namespace (stored-document lifecycle)
 //   client.Documents.Get, Preview, Thumbnails, Delete
@@ -38,7 +38,6 @@ client := polipage.NewClient(option.WithAPIKey(apiKey))
 same retry policy (5xx + 429 + network + timeout; jitter `[0.5, 1.5)`;
 Retry-After cap 30s), same error-code round-tripping, same predicate
 helpers (`IsAuthError` covers 401 + 403), same constructor validation,
-same hooks-never-break-the-request semantics, same project-mode-only
-constraint on `Render.PDF/PDFStream/Document`, same primitive-only
+same hooks-never-break-the-request semantics, same primitive-only
 `RenderMetadata`, same thumbnails wire wrap/unwrap, same
 `Documents.Preview` text/html + `X-Document-Page-Count` parsing.

@@ -1,4 +1,4 @@
-// Demonstrates: client.Render.PDF(ctx, in) — project mode only.
+// Demonstrates: client.Render.PDF(ctx, in) — renders the project's copy published in the key's environment.
 package main
 
 import (
@@ -15,7 +15,7 @@ func main() {
 		option.WithAPIKey(os.Getenv("POLI_PAGE_API_KEY")),
 	)
 
-	pdf, err := client.Render.PDF(context.Background(), polipage.ProjectModeInput{
+	pdf, err := client.Render.PDF(context.Background(), polipage.RenderInput{
 		Project:  "billing",
 		Template: "invoice",
 		Data:     map[string]any{"invoiceNumber": "INV-001", "total": 1280},

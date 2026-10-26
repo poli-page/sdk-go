@@ -1,27 +1,45 @@
 package polipage
 
-import "testing"
-
-// Compile-time assertions that the sealed RenderInput interface is
-// satisfied by ProjectModeInput and InlineModeInput. External packages
-// CANNOT satisfy this interface — the marker method is unexported.
-//
-// The following call patterns MUST fail to compile (verify by hand if
-// ever in doubt; there is no automated negative-compile harness):
-//
-//	client.Render.PDF(ctx, polipage.InlineModeInput{})      // wrong input type
-//	client.Render.PDFStream(ctx, polipage.InlineModeInput{}) // wrong input type
-//	client.Render.Document(ctx, polipage.InlineModeInput{}) // wrong input type
-var (
-	_ RenderInput = ProjectModeInput{}
-	_ RenderInput = InlineModeInput{}
+import (
+	"reflect"
+	"slices"
+	"strings"
+	"testing"
 )
 
-func TestOpt_returnsPointerToValue(t *testing.T) {
+// jsonFieldNames returns the JSON names of a struct type's exported fields.
+func jsonFieldNames(t reflect.Type) []string {
+	var names []string
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if !f.IsExported() {
+			continue
+		}
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names
+}
+
+func TestTypeShape_RenderInputHasOnlyTheSevenDocumentedFields(t *testing.T) {
 	t.Parallel()
-	p := Opt("hello")
-	if p == nil || *p != "hello" {
-		t.Fatalf("Opt(\"hello\") = %v, want pointer to \"hello\"", p)
+	got := jsonFieldNames(reflect.TypeFor[RenderInput]())
+	want := []string{"data", "format", "locale", "metadata", "orientation", "project", "template"}
+	if !slices.Equal(got, want) {
+		t.Errorf("RenderInput JSON fields = %v, want %v", got, want)
+	}
+}
+
+func TestTypeShape_DocumentDescriptorHasNoVersionAndAStringEnvironment(t *testing.T) {
+	t.Parallel()
+	typ := reflect.TypeFor[DocumentDescriptor]()
+	if slices.Contains(jsonFieldNames(typ), "version") {
+		t.Error("DocumentDescriptor still has a version field")
+	}
+	f, ok := typ.FieldByName("Environment")
+	if !ok || f.Type != reflect.TypeFor[string]() {
+		t.Errorf("DocumentDescriptor.Environment type = %v, want string", f.Type)
 	}
 }
 

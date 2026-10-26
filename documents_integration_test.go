@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -17,7 +16,8 @@ import (
 // lifecycle against the develop API:
 //
 //	Render.Document → Documents.Get → DownloadPDF → Documents.Thumbnails
-//	→ Documents.Preview → Documents.Delete → Documents.Get returns GONE.
+//	→ Documents.Preview → Documents.Delete (twice) → Documents.Get
+//	returns DOCUMENT_GONE.
 //
 // Tier-gated thumbnails (Free tier returns THUMBNAILS_NOT_AVAILABLE) are
 // tolerated — wire-level assertions run only when the call succeeds.
@@ -25,13 +25,10 @@ func TestIntegration_Documents_roundTrip(t *testing.T) {
 	client := integrationClient(t)
 	ctx := context.Background()
 
-	created, err := client.Render.Document(ctx, polipage.ProjectModeInput{
-		Project:  envOr("POLI_PAGE_TEST_PROJECT", "getting-started"),
-		Template: envOr("POLI_PAGE_TEST_TEMPLATE", "welcome"),
-		Version:  polipage.Opt(envOr("POLI_PAGE_TEST_VERSION", "1.0.0")),
-		Data:     map[string]any{"id": time.Now().UnixNano()},
-		Metadata: polipage.RenderMetadata{"source": "sdk-go documents integration test"},
-	})
+	in := integrationInput()
+	in.Data = map[string]any{"id": time.Now().UnixNano()}
+	in.Metadata = polipage.RenderMetadata{"source": "sdk-go documents integration test"}
+	created, err := client.Render.Document(ctx, in)
 	if err != nil {
 		t.Fatalf("Render.Document err = %v", err)
 	}
@@ -80,6 +77,12 @@ func TestIntegration_Documents_roundTrip(t *testing.T) {
 			t.Errorf("thumbs[0].ContentType = %q, want image/png", thumbs[0].ContentType)
 		}
 	}
+	if err == nil {
+		// No option at all: the API applies its defaults (400 px JPEG).
+		if _, err := client.Documents.Thumbnails(ctx, created.DocumentID, polipage.ThumbnailOptions{}); err != nil {
+			t.Fatalf("Thumbnails with no options err = %v", err)
+		}
+	}
 
 	// 5. Documents.Preview returns HTML + pageCount.
 	preview, err := client.Documents.Preview(ctx, created.DocumentID)
@@ -93,22 +96,17 @@ func TestIntegration_Documents_roundTrip(t *testing.T) {
 		t.Errorf("PageCount = %d, want > 0", preview.PageCount)
 	}
 
-	// 6. Soft-delete.
+	// 6. Soft-delete; deleting again also succeeds (idempotent 204).
 	if err := client.Documents.Delete(ctx, created.DocumentID); err != nil {
 		t.Fatalf("Documents.Delete err = %v", err)
 	}
+	if err := client.Documents.Delete(ctx, created.DocumentID); err != nil {
+		t.Fatalf("second Documents.Delete err = %v, want nil", err)
+	}
 
-	// 7. Subsequent Get returns GONE (or DOCUMENT_GONE depending on API
-	// version — tolerate the family).
+	// 7. Subsequent Get returns 410 DOCUMENT_GONE.
 	_, err = client.Documents.Get(ctx, created.DocumentID)
-	if err == nil {
-		t.Fatal("expected GONE after delete, got nil")
-	}
-	var pErr *polipage.Error
-	if !errors.As(err, &pErr) || pErr.StatusCode != 410 {
-		t.Fatalf("err = %v, want *Error with StatusCode=410", err)
-	}
-	if !strings.Contains(pErr.Code, "GONE") {
-		t.Errorf("err code = %q, want to contain 'GONE'", pErr.Code)
+	if !errors.Is(err, polipage.ErrDocumentGone) {
+		t.Fatalf("err = %v, want errors.Is(..., ErrDocumentGone)", err)
 	}
 }

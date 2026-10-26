@@ -22,7 +22,7 @@ func canonicalDescriptorJSON() string {
 	return `{
 		"documentId":"doc_abc","organizationId":"org_xyz",
 		"projectId":"p1","projectSlug":"billing","templateId":"t1","templateSlug":"invoice",
-		"version":"1.0.0","environment":"sandbox","apiKeyId":"k1",
+		"environment":"sandbox","apiKeyId":"k1",
 		"format":"A4","orientation":"portrait","locale":"en-US",
 		"pageCount":2,"sizeBytes":4096,"createdAt":"2026-05-21T10:00:00Z",
 		"metadata":{"source":"test"},
@@ -58,6 +58,24 @@ func TestDocuments_Get_happyPath(t *testing.T) {
 	// Back-reference wired: DownloadPDF must be usable from a Documents.Get result.
 	if doc.PresignedPDFURL == "" {
 		t.Error("PresignedPDFURL empty")
+	}
+}
+
+func TestDocuments_Get_decodesAnyEnvironmentName(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, strings.Replace(canonicalDescriptorJSON(), `"environment":"sandbox"`, `"environment":"staging"`, 1))
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server)
+	doc, err := client.Documents.Get(context.Background(), "doc_abc")
+	if err != nil {
+		t.Fatalf("Get err = %v", err)
+	}
+	if doc.Environment != "staging" {
+		t.Errorf("Environment = %q, want staging", doc.Environment)
 	}
 }
 
@@ -188,7 +206,7 @@ func TestDocuments_Thumbnails_wrapsBodyAndUnwrapsResponse(t *testing.T) {
 	client := newTestClient(t, server)
 	thumbs, err := client.Documents.Thumbnails(context.Background(), "doc_abc", polipage.ThumbnailOptions{
 		Width:  840,
-		Format: polipage.ThumbnailFormatPNG,
+		Format: polipage.ThumbnailFormatWebP,
 		Pages:  []int{1, 2},
 	})
 	if err != nil {
@@ -205,8 +223,61 @@ func TestDocuments_Thumbnails_wrapsBodyAndUnwrapsResponse(t *testing.T) {
 	if !strings.Contains(body, `"thumbnails":{`) {
 		t.Errorf("body = %s, want top-level {\"thumbnails\":{...}} wrap", body)
 	}
-	if !strings.Contains(body, `"width":840`) || !strings.Contains(body, `"format":"png"`) || !strings.Contains(body, `"pages":[1,2]`) {
+	if !strings.Contains(body, `"width":840`) || !strings.Contains(body, `"format":"webp"`) || !strings.Contains(body, `"pages":[1,2]`) {
 		t.Errorf("body = %s, missing expected option fields", body)
+	}
+}
+
+// thumbnailsBody calls Documents.Thumbnails with options against a fake
+// API and returns the raw request body the SDK sent.
+func thumbnailsBody(t *testing.T, options polipage.ThumbnailOptions) string {
+	t.Helper()
+	var bodySeen []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		bodySeen, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"thumbnails":[]}`)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server)
+	if _, err := client.Documents.Thumbnails(context.Background(), "doc_abc", options); err != nil {
+		t.Fatalf("Thumbnails err = %v", err)
+	}
+	return string(bodySeen)
+}
+
+func TestDocuments_Thumbnails_noOptionsSendsEmptyObject(t *testing.T) {
+	t.Parallel()
+	if got := thumbnailsBody(t, polipage.ThumbnailOptions{}); got != `{}` {
+		t.Errorf("body = %s, want {}", got)
+	}
+}
+
+func TestDocuments_Thumbnails_eachOptionAloneIsSentAndUnsetOnesAreNot(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		options polipage.ThumbnailOptions
+		want    string
+	}{
+		{polipage.ThumbnailOptions{Width: 320}, `{"thumbnails":{"width":320}}`},
+		{polipage.ThumbnailOptions{Format: polipage.ThumbnailFormatJPEG}, `{"thumbnails":{"format":"jpeg"}}`},
+		{polipage.ThumbnailOptions{Quality: 80}, `{"thumbnails":{"quality":80}}`},
+		{polipage.ThumbnailOptions{Pages: []int{2}}, `{"thumbnails":{"pages":[2]}}`},
+	}
+	for _, tc := range cases {
+		if got := thumbnailsBody(t, tc.options); got != tc.want {
+			t.Errorf("body = %s, want %s", got, tc.want)
+		}
+	}
+}
+
+func TestDocuments_Thumbnails_outOfRangeOptionsAreSentUnchecked(t *testing.T) {
+	t.Parallel()
+	// Bounds are the API's to enforce (400 VALIDATION_ERROR), not the SDK's.
+	got := thumbnailsBody(t, polipage.ThumbnailOptions{Width: 5000, Quality: 500})
+	if got != `{"thumbnails":{"width":5000,"quality":500}}` {
+		t.Errorf("body = %s, want the options sent verbatim", got)
 	}
 }
 
@@ -262,19 +333,40 @@ func TestDocuments_Delete_succeedsOn200WithBody(t *testing.T) {
 	}
 }
 
-func TestDocuments_Delete_alreadyDeletedReturnsErrGone(t *testing.T) {
+func TestDocuments_Delete_isIdempotentOnRepeated204(t *testing.T) {
 	t.Parallel()
+	// The API answers 204 to a delete of an already-deleted document.
+	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusGone)
-		_, _ = io.WriteString(w, `{"code":"GONE","message":"already deleted"}`)
+		calls.Add(1)
+		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer server.Close()
 
 	client := newTestClient(t, server)
-	err := client.Documents.Delete(context.Background(), "doc_abc")
-	if !errors.Is(err, polipage.ErrGone) {
-		t.Fatalf("err = %v, want errors.Is(..., ErrGone)", err)
+	for i := 0; i < 2; i++ {
+		if err := client.Documents.Delete(context.Background(), "doc_abc"); err != nil {
+			t.Fatalf("Delete #%d err = %v, want nil", i+1, err)
+		}
+	}
+	if got := calls.Load(); got != 2 {
+		t.Errorf("calls = %d, want 2", got)
+	}
+}
+
+func TestDocuments_Get_deletedDocumentMapsToErrDocumentGone(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusGone)
+		_, _ = io.WriteString(w, `{"error":"DOCUMENT_GONE","detail":"Document has been deleted"}`)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server)
+	_, err := client.Documents.Get(context.Background(), "doc_abc")
+	if !errors.Is(err, polipage.ErrDocumentGone) {
+		t.Fatalf("err = %v, want errors.Is(..., ErrDocumentGone)", err)
 	}
 }
 

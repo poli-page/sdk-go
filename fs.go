@@ -20,7 +20,7 @@ import (
 // across calls. RenderToFile is a free function because it is a thin
 // convenience over Render.PDFStream; keeping it off *Client matches the
 // platform spec §2.
-func RenderToFile(ctx context.Context, c *Client, in ProjectModeInput, path string) error {
+func RenderToFile(ctx context.Context, c *Client, in RenderInput, path string) error {
 	body, err := c.Render.PDFStream(ctx, in)
 	if err != nil {
 		return err

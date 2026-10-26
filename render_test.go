@@ -17,14 +17,15 @@ import (
 	"github.com/poli-page/sdk-go/option"
 )
 
-// renderPreviewJSON is a canned 200 OK body matching the deployed API's
-// PreviewResult shape (html / totalPages / environment).
-const renderPreviewJSON = `{"html":"<p>hello</p>","totalPages":3,"environment":"sandbox"}`
+// minimalInput is the smallest valid render input for transport-level tests.
+func minimalInput() polipage.RenderInput {
+	return polipage.RenderInput{Project: "x", Template: "y", Data: map[string]any{}}
+}
 
 func newTestClient(t *testing.T, server *httptest.Server, extra ...option.RequestOption) *polipage.Client {
 	t.Helper()
 	opts := append([]option.RequestOption{
-		option.WithAPIKey("pp_test_xyz"),
+		option.WithAPIKey("pp_sandbox_xyz"),
 		option.WithBaseURL(server.URL),
 		option.WithHTTPClient(server.Client()),
 		option.WithRetryDelay(1 * time.Millisecond), // keep retry tests fast
@@ -32,17 +33,17 @@ func newTestClient(t *testing.T, server *httptest.Server, extra ...option.Reques
 	return polipage.NewClient(opts...)
 }
 
-func TestRender_Preview_happyPath(t *testing.T) {
+func TestRender_Document_sendsPOSTToRenderWithHeaders(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Errorf("method = %s, want POST", r.Method)
 		}
-		if r.URL.Path != "/v1/render/preview" {
-			t.Errorf("path = %s, want /v1/render/preview", r.URL.Path)
+		if r.URL.Path != "/v1/render" {
+			t.Errorf("path = %s, want /v1/render", r.URL.Path)
 		}
-		if got := r.Header.Get("Authorization"); got != "Bearer pp_test_xyz" {
-			t.Errorf("Authorization = %q, want Bearer pp_test_xyz", got)
+		if got := r.Header.Get("Authorization"); got != "Bearer pp_sandbox_xyz" {
+			t.Errorf("Authorization = %q, want Bearer pp_sandbox_xyz", got)
 		}
 		if got := r.Header.Get("Content-Type"); got != "application/json" {
 			t.Errorf("Content-Type = %q, want application/json", got)
@@ -51,74 +52,155 @@ func TestRender_Preview_happyPath(t *testing.T) {
 			t.Errorf("Accept = %q, want application/json", got)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, renderPreviewJSON)
+		_, _ = io.WriteString(w, canonicalDescriptorJSON())
 	}))
 	defer server.Close()
 
 	client := newTestClient(t, server)
-	got, err := client.Render.Preview(context.Background(), polipage.ProjectModeInput{
+	got, err := client.Render.Document(context.Background(), polipage.RenderInput{
 		Project:  "billing",
 		Template: "invoice",
-		Version:  polipage.Opt("1.0.0"),
 		Data:     map[string]any{"invoiceNumber": "INV-001"},
 	})
 	if err != nil {
-		t.Fatalf("Preview err = %v, want nil", err)
+		t.Fatalf("Document err = %v, want nil", err)
 	}
-	if got.HTML != "<p>hello</p>" || got.TotalPages != 3 || got.Environment != polipage.EnvironmentSandbox {
-		t.Fatalf("Preview = %+v, want {HTML:<p>hello</p>, TotalPages:3, Environment:sandbox}", got)
+	if got.DocumentID != "doc_abc" || got.PageCount != 2 || got.Environment != "sandbox" {
+		t.Fatalf("Document = %+v, want {DocumentID:doc_abc, PageCount:2, Environment:sandbox}", got)
 	}
 }
 
-func TestRender_Preview_sendsRequestBodyAsCamelCaseJSON(t *testing.T) {
-	t.Parallel()
-	var bodySeen json.RawMessage
+// renderBodyKeys renders in through a fake API and returns the top-level
+// keys of the JSON body the SDK sent.
+func renderBodyKeys(t *testing.T, in polipage.RenderInput) map[string]json.RawMessage {
+	t.Helper()
+	var bodySeen []byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		b, _ := io.ReadAll(r.Body)
-		bodySeen = b
+		bodySeen, _ = io.ReadAll(r.Body)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, renderPreviewJSON)
+		_, _ = io.WriteString(w, canonicalDescriptorJSON())
 	}))
 	defer server.Close()
 
 	client := newTestClient(t, server)
-	_, err := client.Render.Preview(context.Background(), polipage.ProjectModeInput{
-		Project:  "billing",
-		Template: "invoice",
-		Version:  polipage.Opt("1.0.0"),
-		Data:     map[string]any{"invoiceNumber": "INV-001"},
-		Locale:   "fr-FR",
-	})
-	if err != nil {
-		t.Fatalf("Preview err = %v", err)
+	if _, err := client.Render.Document(context.Background(), in); err != nil {
+		t.Fatalf("Document err = %v", err)
 	}
-	got := string(bodySeen)
-	for _, want := range []string{`"project":"billing"`, `"template":"invoice"`, `"version":"1.0.0"`, `"locale":"fr-FR"`, `"invoiceNumber":"INV-001"`} {
-		if !strings.Contains(got, want) {
-			t.Errorf("body = %s\nwant to contain %s", got, want)
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(bodySeen, &body); err != nil {
+		t.Fatalf("body %s is not a JSON object: %v", bodySeen, err)
+	}
+	return body
+}
+
+func TestRender_Document_bodyHoldsOnlyTheSevenDocumentedFields(t *testing.T) {
+	t.Parallel()
+	body := renderBodyKeys(t, polipage.RenderInput{
+		Project:     "billing",
+		Template:    "invoice",
+		Data:        map[string]any{"invoiceNumber": "INV-001"},
+		Metadata:    polipage.RenderMetadata{"customerId": "cust_1"},
+		Format:      polipage.PageFormatA4,
+		Orientation: polipage.OrientationLandscape,
+		Locale:      "fr-FR",
+	})
+	want := map[string]string{
+		"project":     `"billing"`,
+		"template":    `"invoice"`,
+		"data":        `{"invoiceNumber":"INV-001"}`,
+		"metadata":    `{"customerId":"cust_1"}`,
+		"format":      `"A4"`,
+		"orientation": `"landscape"`,
+		"locale":      `"fr-FR"`,
+	}
+	if len(body) != len(want) {
+		t.Errorf("body keys = %v, want exactly %d documented fields", keysOf(body), len(want))
+	}
+	for k, v := range want {
+		if got := string(body[k]); got != v {
+			t.Errorf("body[%q] = %s, want %s", k, got, v)
 		}
 	}
 }
 
-func TestRender_Preview_inlineModeAccepted(t *testing.T) {
+func TestRender_Document_unsetOptionalFieldsAreOmittedNotNull(t *testing.T) {
+	t.Parallel()
+	body := renderBodyKeys(t, polipage.RenderInput{
+		Project:  "billing",
+		Template: "invoice",
+		Data:     map[string]any{},
+	})
+	if len(body) != 3 || body["project"] == nil || body["template"] == nil || body["data"] == nil {
+		t.Errorf("body keys = %v, want exactly [data project template]", keysOf(body))
+	}
+}
+
+func keysOf(m map[string]json.RawMessage) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+func TestRender_Document_decodesAnyEnvironmentName(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, renderPreviewJSON)
+		_, _ = io.WriteString(w, strings.Replace(canonicalDescriptorJSON(), `"environment":"sandbox"`, `"environment":"staging"`, 1))
 	}))
 	defer server.Close()
 
 	client := newTestClient(t, server)
-	_, err := client.Render.Preview(context.Background(), polipage.InlineModeInput{
-		Template: "<html>{{name}}</html>",
-		Data:     map[string]any{"name": "Mickael"},
-	})
+	doc, err := client.Render.Document(context.Background(), minimalInput())
 	if err != nil {
-		t.Fatalf("Preview(InlineModeInput) err = %v", err)
+		t.Fatalf("Document err = %v", err)
+	}
+	if doc.Environment != "staging" {
+		t.Errorf("Environment = %q, want staging", doc.Environment)
 	}
 }
 
-func TestRender_Preview_4xxNoRetryReturnsTypedError(t *testing.T) {
+func TestRender_Document_publishInProgressHonoursRetryAfterThenSurfaces(t *testing.T) {
+	t.Parallel()
+	var calls atomic.Int32
+	var times []time.Time
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		times = append(times, time.Now())
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", "1")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = io.WriteString(w, `{"error":"PUBLISH_IN_PROGRESS","detail":"A publish is in progress","requestId":"req_pub"}`)
+	}))
+	defer server.Close()
+
+	var retryEvents []polipage.RetryEvent
+	client := newTestClient(t, server,
+		option.WithMaxRetries(1),
+		option.WithOnRetry(func(e polipage.RetryEvent) { retryEvents = append(retryEvents, e) }),
+	)
+	_, err := client.Render.Document(context.Background(), minimalInput())
+
+	var pErr *polipage.Error
+	if !errors.As(err, &pErr) {
+		t.Fatalf("err = %v, want *Error", err)
+	}
+	if pErr.Code != polipage.ErrCodePublishInProgress || pErr.StatusCode != 503 {
+		t.Errorf("err = %+v, want Code=PUBLISH_IN_PROGRESS StatusCode=503", pErr)
+	}
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("calls = %d, want 2 (initial + MaxRetries=1)", got)
+	}
+	if len(retryEvents) != 1 || retryEvents[0].DelayMs != 1000 {
+		t.Errorf("retry events = %+v, want one with DelayMs=1000 (Retry-After: 1)", retryEvents)
+	}
+	if gap := times[1].Sub(times[0]); gap < time.Second {
+		t.Errorf("gap between attempts = %v, want >= 1s (Retry-After: 1)", gap)
+	}
+}
+
+func TestRender_Document_4xxNoRetryReturnsTypedError(t *testing.T) {
 	t.Parallel()
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -131,11 +213,9 @@ func TestRender_Preview_4xxNoRetryReturnsTypedError(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(t, server)
-	_, err := client.Render.Preview(context.Background(), polipage.ProjectModeInput{
-		Project: "x", Template: "y", Data: map[string]any{},
-	})
+	_, err := client.Render.Document(context.Background(), minimalInput())
 	if err == nil {
-		t.Fatal("Preview err = nil, want *Error")
+		t.Fatal("Document err = nil, want *Error")
 	}
 	var pErr *polipage.Error
 	if !errors.As(err, &pErr) {
@@ -152,7 +232,7 @@ func TestRender_Preview_4xxNoRetryReturnsTypedError(t *testing.T) {
 	}
 }
 
-func TestRender_Preview_5xxRetriesThenSucceeds(t *testing.T) {
+func TestRender_Document_5xxRetriesThenSucceeds(t *testing.T) {
 	t.Parallel()
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -162,26 +242,24 @@ func TestRender_Preview_5xxRetriesThenSucceeds(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, renderPreviewJSON)
+		_, _ = io.WriteString(w, canonicalDescriptorJSON())
 	}))
 	defer server.Close()
 
 	client := newTestClient(t, server, option.WithMaxRetries(3))
-	res, err := client.Render.Preview(context.Background(), polipage.ProjectModeInput{
-		Project: "x", Template: "y", Data: map[string]any{},
-	})
+	res, err := client.Render.Document(context.Background(), minimalInput())
 	if err != nil {
-		t.Fatalf("Preview err = %v", err)
+		t.Fatalf("Document err = %v", err)
 	}
-	if res.HTML == "" {
-		t.Error("Preview result empty after retry success")
+	if res.DocumentID == "" {
+		t.Error("Document result empty after retry success")
 	}
 	if got := calls.Load(); got != 3 {
 		t.Errorf("calls = %d, want 3 (two 502s then success)", got)
 	}
 }
 
-func TestRender_Preview_5xxRetriesExhausted(t *testing.T) {
+func TestRender_Document_5xxRetriesExhausted(t *testing.T) {
 	t.Parallel()
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -191,11 +269,9 @@ func TestRender_Preview_5xxRetriesExhausted(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(t, server, option.WithMaxRetries(2))
-	_, err := client.Render.Preview(context.Background(), polipage.ProjectModeInput{
-		Project: "x", Template: "y", Data: map[string]any{},
-	})
+	_, err := client.Render.Document(context.Background(), minimalInput())
 	if err == nil {
-		t.Fatal("Preview err = nil, want *Error")
+		t.Fatal("Document err = nil, want *Error")
 	}
 	if got := calls.Load(); got != 3 { // initial + 2 retries
 		t.Errorf("calls = %d, want 3 (initial + MaxRetries=2)", got)
@@ -206,53 +282,51 @@ func TestRender_Preview_5xxRetriesExhausted(t *testing.T) {
 	}
 }
 
-func TestRender_Preview_autoGeneratesIdempotencyKeyUUID4(t *testing.T) {
+func TestRender_Document_autoGeneratesIdempotencyKeyUUID4(t *testing.T) {
 	t.Parallel()
 	var got string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got = r.Header.Get("Idempotency-Key")
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, renderPreviewJSON)
+		_, _ = io.WriteString(w, canonicalDescriptorJSON())
 	}))
 	defer server.Close()
 
 	client := newTestClient(t, server)
-	_, err := client.Render.Preview(context.Background(), polipage.ProjectModeInput{
-		Project: "x", Template: "y", Data: map[string]any{},
-	})
+	_, err := client.Render.Document(context.Background(), minimalInput())
 	if err != nil {
-		t.Fatalf("Preview err = %v", err)
+		t.Fatalf("Document err = %v", err)
 	}
 	if len(got) != 36 || got[8] != '-' || got[14] != '4' {
 		t.Errorf("Idempotency-Key = %q, want UUID4-shaped", got)
 	}
 }
 
-func TestRender_Preview_customIdempotencyKeyOverridesAuto(t *testing.T) {
+func TestRender_Document_customIdempotencyKeyOverridesAuto(t *testing.T) {
 	t.Parallel()
 	var got string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got = r.Header.Get("Idempotency-Key")
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, renderPreviewJSON)
+		_, _ = io.WriteString(w, canonicalDescriptorJSON())
 	}))
 	defer server.Close()
 
 	client := newTestClient(t, server)
-	_, err := client.Render.Preview(
+	_, err := client.Render.Document(
 		context.Background(),
-		polipage.ProjectModeInput{Project: "x", Template: "y", Data: map[string]any{}},
+		minimalInput(),
 		option.WithIdempotencyKey("inv-INV-001"),
 	)
 	if err != nil {
-		t.Fatalf("Preview err = %v", err)
+		t.Fatalf("Document err = %v", err)
 	}
 	if got != "inv-INV-001" {
 		t.Errorf("Idempotency-Key = %q, want inv-INV-001", got)
 	}
 }
 
-func TestRender_Preview_ctxCancelMapsToAborted(t *testing.T) {
+func TestRender_Document_ctxCancelMapsToAborted(t *testing.T) {
 	t.Parallel()
 	// Slow server so the cancel races the response.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -269,9 +343,7 @@ func TestRender_Preview_ctxCancelMapsToAborted(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 		cancel()
 	}()
-	_, err := client.Render.Preview(ctx, polipage.ProjectModeInput{
-		Project: "x", Template: "y", Data: map[string]any{},
-	})
+	_, err := client.Render.Document(ctx, minimalInput())
 	if !errors.Is(err, polipage.ErrAborted) {
 		t.Fatalf("err = %v, want errors.Is(..., ErrAborted)", err)
 	}
@@ -282,9 +354,7 @@ func TestNewClient_emptyAPIKeyReturnsErrorOnFirstCall(t *testing.T) {
 	// No WithAPIKey: NewClient still returns *Client, but the first method
 	// call surfaces *Error{Code: ErrCodeInvalidOptions}.
 	client := polipage.NewClient(option.WithBaseURL("https://api.poli.page"))
-	_, err := client.Render.Preview(context.Background(), polipage.InlineModeInput{
-		Template: "<html/>", Data: map[string]any{},
-	})
+	_, err := client.Render.Document(context.Background(), minimalInput())
 	var pErr *polipage.Error
 	if !errors.As(err, &pErr) {
 		t.Fatalf("err = %v, want *Error", err)
@@ -294,7 +364,7 @@ func TestNewClient_emptyAPIKeyReturnsErrorOnFirstCall(t *testing.T) {
 	}
 }
 
-func TestRender_Preview_onRetryHookFires(t *testing.T) {
+func TestRender_Document_onRetryHookFires(t *testing.T) {
 	t.Parallel()
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -304,7 +374,7 @@ func TestRender_Preview_onRetryHookFires(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, renderPreviewJSON)
+		_, _ = io.WriteString(w, canonicalDescriptorJSON())
 	}))
 	defer server.Close()
 
@@ -312,11 +382,9 @@ func TestRender_Preview_onRetryHookFires(t *testing.T) {
 	client := newTestClient(t, server, option.WithOnRetry(func(e polipage.RetryEvent) {
 		retryEvents = append(retryEvents, e)
 	}))
-	_, err := client.Render.Preview(context.Background(), polipage.ProjectModeInput{
-		Project: "x", Template: "y", Data: map[string]any{},
-	})
+	_, err := client.Render.Document(context.Background(), minimalInput())
 	if err != nil {
-		t.Fatalf("Preview err = %v", err)
+		t.Fatalf("Document err = %v", err)
 	}
 	if len(retryEvents) != 1 {
 		t.Fatalf("retry hook fired %d times, want 1", len(retryEvents))
@@ -330,7 +398,7 @@ func TestRender_Preview_onRetryHookFires(t *testing.T) {
 	}
 }
 
-func TestRender_Preview_onErrorHookFiresOnceOnTerminalFailure(t *testing.T) {
+func TestRender_Document_onErrorHookFiresOnceOnTerminalFailure(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
@@ -340,43 +408,39 @@ func TestRender_Preview_onErrorHookFiresOnceOnTerminalFailure(t *testing.T) {
 
 	var errorCalls atomic.Int32
 	client := newTestClient(t, server, option.WithOnError(func(error) { errorCalls.Add(1) }))
-	_, err := client.Render.Preview(context.Background(), polipage.ProjectModeInput{
-		Project: "x", Template: "y", Data: map[string]any{},
-	})
+	_, err := client.Render.Document(context.Background(), minimalInput())
 	if err == nil {
-		t.Fatal("Preview err = nil, want *Error")
+		t.Fatal("Document err = nil, want *Error")
 	}
 	if got := errorCalls.Load(); got != 1 {
 		t.Errorf("onError fired %d times, want 1", got)
 	}
 }
 
-func TestRender_Preview_largeResponseBodyDoesNotRaceAttemptTimeout(t *testing.T) {
+func TestRender_Document_largeResponseBodyDoesNotRaceAttemptTimeout(t *testing.T) {
 	t.Parallel()
 	// Regression: when the response body is large enough that decode needs
 	// multiple reads, the per-attempt timeout context must remain live until
 	// the caller closes the body. Cancelling in sendOnce() killed body reads
-	// for project-mode previews on the real API.
-	bigHTML := strings.Repeat("<p>chunk</p>", 50_000) // ~600 KB
+	// for large responses on the real API.
+	big := strings.Repeat("chunk", 120_000) // ~600 KB
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"html":        bigHTML,
-			"totalPages":  10,
+			"documentId":  "doc_big",
 			"environment": "sandbox",
+			"metadata":    map[string]any{"note": big},
 		})
 	}))
 	defer server.Close()
 
 	client := newTestClient(t, server)
-	res, err := client.Render.Preview(context.Background(), polipage.ProjectModeInput{
-		Project: "x", Template: "y", Data: map[string]any{},
-	})
+	res, err := client.Render.Document(context.Background(), minimalInput())
 	if err != nil {
-		t.Fatalf("Preview err = %v", err)
+		t.Fatalf("Document err = %v", err)
 	}
-	if len(res.HTML) != len(bigHTML) {
-		t.Errorf("HTML length = %d, want %d", len(res.HTML), len(bigHTML))
+	if got, _ := res.Metadata["note"].(string); len(got) != len(big) {
+		t.Errorf("metadata note length = %d, want %d", len(got), len(big))
 	}
 }
 
@@ -403,7 +467,6 @@ func twoHopServer(t *testing.T, pdfBytes []byte, onRender func(body []byte)) *ht
 			"projectSlug":     "billing",
 			"templateId":      "tmpl_001",
 			"templateSlug":    "invoice",
-			"version":         "1.0.0",
 			"environment":     "sandbox",
 			"apiKeyId":        "key_001",
 			"format":          "A4",
@@ -435,10 +498,9 @@ func TestRender_Document_happyPath(t *testing.T) {
 	server := twoHopServer(t, pdf, nil)
 	client := newTestClient(t, server)
 
-	doc, err := client.Render.Document(context.Background(), polipage.ProjectModeInput{
+	doc, err := client.Render.Document(context.Background(), polipage.RenderInput{
 		Project: "billing", Template: "invoice",
-		Version: polipage.Opt("1.0.0"),
-		Data:    map[string]any{"invoiceNumber": "INV-001"},
+		Data: map[string]any{"invoiceNumber": "INV-001"},
 	})
 	if err != nil {
 		t.Fatalf("Document err = %v", err)
@@ -449,7 +511,7 @@ func TestRender_Document_happyPath(t *testing.T) {
 	if doc.OrganizationID != "org_test_xyz" {
 		t.Errorf("OrganizationID = %q, want org_test_xyz", doc.OrganizationID)
 	}
-	if doc.Environment != polipage.EnvironmentSandbox {
+	if doc.Environment != "sandbox" {
 		t.Errorf("Environment = %q, want sandbox", doc.Environment)
 	}
 	if doc.PageCount != 2 || doc.SizeBytes != int64(len(pdf)) {
@@ -462,9 +524,6 @@ func TestRender_Document_happyPath(t *testing.T) {
 	if doc.ProjectSlug == nil || *doc.ProjectSlug != "billing" {
 		t.Errorf("ProjectSlug = %v, want non-nil pointing to 'billing'", doc.ProjectSlug)
 	}
-	if doc.Version == nil || *doc.Version != "1.0.0" {
-		t.Errorf("Version = %v, want non-nil pointing to '1.0.0'", doc.Version)
-	}
 }
 
 func TestRender_Document_preservesNullsAsNilPointers(t *testing.T) {
@@ -474,7 +533,7 @@ func TestRender_Document_preservesNullsAsNilPointers(t *testing.T) {
 		_, _ = io.WriteString(w, `{
 			"documentId":"doc_1","organizationId":"org_1",
 			"projectId":null,"projectSlug":null,"templateId":null,"templateSlug":null,
-			"version":null,"environment":"sandbox","apiKeyId":null,
+			"environment":"sandbox","apiKeyId":null,
 			"format":"A4","orientation":null,"locale":null,
 			"pageCount":1,"sizeBytes":100,"createdAt":"2026-05-21T10:00:00Z",
 			"metadata":{},"presignedPdfUrl":"https://s3.example/x","expiresAt":"2026-05-21T10:15:00Z"
@@ -483,13 +542,11 @@ func TestRender_Document_preservesNullsAsNilPointers(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(t, server)
-	doc, err := client.Render.Document(context.Background(), polipage.ProjectModeInput{
-		Project: "x", Template: "y", Data: map[string]any{},
-	})
+	doc, err := client.Render.Document(context.Background(), minimalInput())
 	if err != nil {
 		t.Fatalf("Document err = %v", err)
 	}
-	if doc.ProjectID != nil || doc.ProjectSlug != nil || doc.Version != nil || doc.Orientation != nil || doc.Locale != nil || doc.APIKeyID != nil {
+	if doc.ProjectID != nil || doc.ProjectSlug != nil || doc.TemplateID != nil || doc.TemplateSlug != nil || doc.Orientation != nil || doc.Locale != nil || doc.APIKeyID != nil {
 		t.Errorf("expected nullable fields to be nil pointers, got %+v", doc)
 	}
 }
@@ -509,9 +566,7 @@ func TestRender_Document_metadataAlwaysNonNil(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(t, server)
-	doc, err := client.Render.Document(context.Background(), polipage.ProjectModeInput{
-		Project: "x", Template: "y", Data: map[string]any{},
-	})
+	doc, err := client.Render.Document(context.Background(), minimalInput())
 	if err != nil {
 		t.Fatalf("Document err = %v", err)
 	}
@@ -535,7 +590,7 @@ func TestRender_Document_emptyProjectRejectedClientSide(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(t, server)
-	_, err := client.Render.Document(context.Background(), polipage.ProjectModeInput{
+	_, err := client.Render.Document(context.Background(), polipage.RenderInput{
 		Project: "", Template: "y", Data: map[string]any{},
 	})
 	if err == nil {
@@ -559,7 +614,7 @@ func TestRender_Document_metadataNestedValueRejected(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(t, server)
-	_, err := client.Render.Document(context.Background(), polipage.ProjectModeInput{
+	_, err := client.Render.Document(context.Background(), polipage.RenderInput{
 		Project: "x", Template: "y", Data: map[string]any{},
 		Metadata: polipage.RenderMetadata{
 			"nested": map[string]any{"oops": "no nested maps"},
@@ -580,10 +635,9 @@ func TestRender_PDF_twoHopReturnsBytes(t *testing.T) {
 	server := twoHopServer(t, pdf, nil)
 	client := newTestClient(t, server)
 
-	got, err := client.Render.PDF(context.Background(), polipage.ProjectModeInput{
+	got, err := client.Render.PDF(context.Background(), polipage.RenderInput{
 		Project: "billing", Template: "invoice",
-		Version: polipage.Opt("1.0.0"),
-		Data:    map[string]any{},
+		Data: map[string]any{},
 	})
 	if err != nil {
 		t.Fatalf("PDF err = %v", err)
@@ -615,9 +669,7 @@ func TestRender_PDF_presignedURLFailureMapsToDownloadFailed(t *testing.T) {
 	serverURL = server.URL
 
 	client := newTestClient(t, server)
-	_, err := client.Render.PDF(context.Background(), polipage.ProjectModeInput{
-		Project: "x", Template: "y", Data: map[string]any{},
-	})
+	_, err := client.Render.PDF(context.Background(), minimalInput())
 	var pErr *polipage.Error
 	if !errors.As(err, &pErr) || pErr.Code != polipage.ErrCodeDownloadFailed {
 		t.Fatalf("err = %v, want Code=DOWNLOAD_FAILED", err)
@@ -633,9 +685,7 @@ func TestRender_PDFStream_returnsReadableBody(t *testing.T) {
 	server := twoHopServer(t, pdf, nil)
 	client := newTestClient(t, server)
 
-	body, err := client.Render.PDFStream(context.Background(), polipage.ProjectModeInput{
-		Project: "x", Template: "y", Data: map[string]any{},
-	})
+	body, err := client.Render.PDFStream(context.Background(), minimalInput())
 	if err != nil {
 		t.Fatalf("PDFStream err = %v", err)
 	}
@@ -655,9 +705,7 @@ func TestDocumentDescriptor_DownloadPDF_succeeds(t *testing.T) {
 	server := twoHopServer(t, pdf, nil)
 	client := newTestClient(t, server)
 
-	doc, err := client.Render.Document(context.Background(), polipage.ProjectModeInput{
-		Project: "x", Template: "y", Data: map[string]any{},
-	})
+	doc, err := client.Render.Document(context.Background(), minimalInput())
 	if err != nil {
 		t.Fatalf("Document err = %v", err)
 	}
@@ -670,7 +718,7 @@ func TestDocumentDescriptor_DownloadPDF_succeeds(t *testing.T) {
 	}
 }
 
-func TestRender_Preview_perCallWithRequestTimeoutOverridesClient(t *testing.T) {
+func TestRender_Document_perCallWithRequestTimeoutOverridesClient(t *testing.T) {
 	t.Parallel()
 	// Slow server: 1s response. Client timeout is generous (60s default),
 	// but the per-call WithRequestTimeout of 50ms must fire first.
@@ -683,9 +731,9 @@ func TestRender_Preview_perCallWithRequestTimeoutOverridesClient(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(t, server, option.WithMaxRetries(0))
-	_, err := client.Render.Preview(
+	_, err := client.Render.Document(
 		context.Background(),
-		polipage.ProjectModeInput{Project: "x", Template: "y", Data: map[string]any{}},
+		minimalInput(),
 		option.WithRequestTimeout(50*time.Millisecond),
 	)
 	if !errors.Is(err, polipage.ErrTimeout) {
@@ -693,46 +741,44 @@ func TestRender_Preview_perCallWithRequestTimeoutOverridesClient(t *testing.T) {
 	}
 }
 
-func TestRender_Preview_perCallWithHeaderAttachesHeader(t *testing.T) {
+func TestRender_Document_perCallWithHeaderAttachesHeader(t *testing.T) {
 	t.Parallel()
 	var got string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got = r.Header.Get("X-Trace-Id")
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, renderPreviewJSON)
+		_, _ = io.WriteString(w, canonicalDescriptorJSON())
 	}))
 	defer server.Close()
 
 	client := newTestClient(t, server)
-	_, err := client.Render.Preview(
+	_, err := client.Render.Document(
 		context.Background(),
-		polipage.ProjectModeInput{Project: "x", Template: "y", Data: map[string]any{}},
+		minimalInput(),
 		option.WithHeader("X-Trace-Id", "trace-abc-123"),
 	)
 	if err != nil {
-		t.Fatalf("Preview err = %v", err)
+		t.Fatalf("Document err = %v", err)
 	}
 	if got != "trace-abc-123" {
 		t.Errorf("X-Trace-Id = %q, want trace-abc-123", got)
 	}
 }
 
-func TestRender_Preview_constructionWithHeaderAppliesToEveryRequest(t *testing.T) {
+func TestRender_Document_constructionWithHeaderAppliesToEveryRequest(t *testing.T) {
 	t.Parallel()
 	var seen []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seen = append(seen, r.Header.Get("X-Tenant"))
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, renderPreviewJSON)
+		_, _ = io.WriteString(w, canonicalDescriptorJSON())
 	}))
 	defer server.Close()
 
 	client := newTestClient(t, server, option.WithHeader("X-Tenant", "tenant-42"))
 	for i := 0; i < 2; i++ {
-		if _, err := client.Render.Preview(context.Background(), polipage.ProjectModeInput{
-			Project: "x", Template: "y", Data: map[string]any{},
-		}); err != nil {
-			t.Fatalf("Preview err = %v", err)
+		if _, err := client.Render.Document(context.Background(), minimalInput()); err != nil {
+			t.Fatalf("Document err = %v", err)
 		}
 	}
 	for i, h := range seen {
@@ -742,35 +788,35 @@ func TestRender_Preview_constructionWithHeaderAppliesToEveryRequest(t *testing.T
 	}
 }
 
-func TestRender_Preview_perCallHeaderOverridesConstructionHeader(t *testing.T) {
+func TestRender_Document_perCallHeaderOverridesConstructionHeader(t *testing.T) {
 	t.Parallel()
 	var got string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got = r.Header.Get("X-Env")
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, renderPreviewJSON)
+		_, _ = io.WriteString(w, canonicalDescriptorJSON())
 	}))
 	defer server.Close()
 
 	client := newTestClient(t, server, option.WithHeader("X-Env", "production"))
-	_, err := client.Render.Preview(
+	_, err := client.Render.Document(
 		context.Background(),
-		polipage.ProjectModeInput{Project: "x", Template: "y", Data: map[string]any{}},
+		minimalInput(),
 		option.WithHeader("X-Env", "staging"), // per-call wins
 	)
 	if err != nil {
-		t.Fatalf("Preview err = %v", err)
+		t.Fatalf("Document err = %v", err)
 	}
 	if got != "staging" {
 		t.Errorf("X-Env = %q, want staging (per-call overrides construction)", got)
 	}
 }
 
-func TestRender_Preview_onRequestHookFires(t *testing.T) {
+func TestRender_Document_onRequestHookFires(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, renderPreviewJSON)
+		_, _ = io.WriteString(w, canonicalDescriptorJSON())
 	}))
 	defer server.Close()
 
@@ -778,11 +824,9 @@ func TestRender_Preview_onRequestHookFires(t *testing.T) {
 	client := newTestClient(t, server, option.WithOnRequest(func(e polipage.RequestEvent) {
 		events = append(events, e)
 	}))
-	_, err := client.Render.Preview(context.Background(), polipage.ProjectModeInput{
-		Project: "x", Template: "y", Data: map[string]any{},
-	})
+	_, err := client.Render.Document(context.Background(), minimalInput())
 	if err != nil {
-		t.Fatalf("Preview err = %v", err)
+		t.Fatalf("Document err = %v", err)
 	}
 	if len(events) != 1 {
 		t.Fatalf("OnRequest fired %d times, want 1", len(events))
@@ -790,15 +834,15 @@ func TestRender_Preview_onRequestHookFires(t *testing.T) {
 	if events[0].Method != "POST" {
 		t.Errorf("event.Method = %q, want POST", events[0].Method)
 	}
-	if !strings.HasSuffix(events[0].URL, "/v1/render/preview") {
-		t.Errorf("event.URL = %q, want suffix /v1/render/preview", events[0].URL)
+	if !strings.HasSuffix(events[0].URL, "/v1/render") {
+		t.Errorf("event.URL = %q, want suffix /v1/render", events[0].URL)
 	}
 	if events[0].Attempt != 1 {
 		t.Errorf("event.Attempt = %d, want 1", events[0].Attempt)
 	}
 }
 
-func TestRender_Preview_onRequestFiresPerAttempt(t *testing.T) {
+func TestRender_Document_onRequestFiresPerAttempt(t *testing.T) {
 	t.Parallel()
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -808,7 +852,7 @@ func TestRender_Preview_onRequestFiresPerAttempt(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, renderPreviewJSON)
+		_, _ = io.WriteString(w, canonicalDescriptorJSON())
 	}))
 	defer server.Close()
 
@@ -819,25 +863,23 @@ func TestRender_Preview_onRequestFiresPerAttempt(t *testing.T) {
 			attempts = append(attempts, e.Attempt)
 		}),
 	)
-	_, err := client.Render.Preview(context.Background(), polipage.ProjectModeInput{
-		Project: "x", Template: "y", Data: map[string]any{},
-	})
+	_, err := client.Render.Document(context.Background(), minimalInput())
 	if err != nil {
-		t.Fatalf("Preview err = %v", err)
+		t.Fatalf("Document err = %v", err)
 	}
 	if got := attempts; len(got) != 3 || got[0] != 1 || got[1] != 2 || got[2] != 3 {
 		t.Errorf("attempts = %v, want [1 2 3]", got)
 	}
 }
 
-func TestRender_Preview_onResponseHookFires(t *testing.T) {
+func TestRender_Document_onResponseHookFires(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-Request-Id", "req_xyz")
 		// ~5ms response so DurationMs is non-zero.
 		time.Sleep(5 * time.Millisecond)
-		_, _ = io.WriteString(w, renderPreviewJSON)
+		_, _ = io.WriteString(w, canonicalDescriptorJSON())
 	}))
 	defer server.Close()
 
@@ -845,11 +887,9 @@ func TestRender_Preview_onResponseHookFires(t *testing.T) {
 	client := newTestClient(t, server, option.WithOnResponse(func(e polipage.ResponseEvent) {
 		events = append(events, e)
 	}))
-	_, err := client.Render.Preview(context.Background(), polipage.ProjectModeInput{
-		Project: "x", Template: "y", Data: map[string]any{},
-	})
+	_, err := client.Render.Document(context.Background(), minimalInput())
 	if err != nil {
-		t.Fatalf("Preview err = %v", err)
+		t.Fatalf("Document err = %v", err)
 	}
 	if len(events) != 1 {
 		t.Fatalf("OnResponse fired %d times, want 1", len(events))
@@ -865,7 +905,7 @@ func TestRender_Preview_onResponseHookFires(t *testing.T) {
 	}
 }
 
-func TestRender_Preview_onResponseDoesNotFireOn5xx(t *testing.T) {
+func TestRender_Document_onResponseDoesNotFireOn5xx(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -877,19 +917,17 @@ func TestRender_Preview_onResponseDoesNotFireOn5xx(t *testing.T) {
 		option.WithMaxRetries(0),
 		option.WithOnResponse(func(polipage.ResponseEvent) { calls.Add(1) }),
 	)
-	_, _ = client.Render.Preview(context.Background(), polipage.ProjectModeInput{
-		Project: "x", Template: "y", Data: map[string]any{},
-	})
+	_, _ = client.Render.Document(context.Background(), minimalInput())
 	if got := calls.Load(); got != 0 {
 		t.Errorf("OnResponse fired %d times on 5xx, want 0", got)
 	}
 }
 
-func TestRender_Preview_onRequestOnResponsePanicsRecovered(t *testing.T) {
+func TestRender_Document_onRequestOnResponsePanicsRecovered(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, renderPreviewJSON)
+		_, _ = io.WriteString(w, canonicalDescriptorJSON())
 	}))
 	defer server.Close()
 
@@ -897,22 +935,20 @@ func TestRender_Preview_onRequestOnResponsePanicsRecovered(t *testing.T) {
 		option.WithOnRequest(func(polipage.RequestEvent) { panic("boom-req") }),
 		option.WithOnResponse(func(polipage.ResponseEvent) { panic("boom-resp") }),
 	)
-	res, err := client.Render.Preview(context.Background(), polipage.ProjectModeInput{
-		Project: "x", Template: "y", Data: map[string]any{},
-	})
+	res, err := client.Render.Document(context.Background(), minimalInput())
 	if err != nil {
-		t.Fatalf("Preview err = %v (hook panic should be recovered)", err)
+		t.Fatalf("Document err = %v (hook panic should be recovered)", err)
 	}
-	if res.HTML == "" {
-		t.Error("Preview returned empty result despite successful response")
+	if res.DocumentID == "" {
+		t.Error("Document returned empty result despite successful response")
 	}
 }
 
-func TestRender_Preview_hookPanicDoesNotBreakRequest(t *testing.T) {
+func TestRender_Document_hookPanicDoesNotBreakRequest(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, renderPreviewJSON)
+		_, _ = io.WriteString(w, canonicalDescriptorJSON())
 	}))
 	defer server.Close()
 
@@ -920,14 +956,12 @@ func TestRender_Preview_hookPanicDoesNotBreakRequest(t *testing.T) {
 		option.WithOnRetry(func(polipage.RetryEvent) { panic("boom") }),
 		option.WithOnError(func(error) { panic("boom") }),
 	)
-	res, err := client.Render.Preview(context.Background(), polipage.ProjectModeInput{
-		Project: "x", Template: "y", Data: map[string]any{},
-	})
+	res, err := client.Render.Document(context.Background(), minimalInput())
 	if err != nil {
-		t.Fatalf("Preview err = %v (hook panic should be recovered)", err)
+		t.Fatalf("Document err = %v (hook panic should be recovered)", err)
 	}
-	if res.HTML == "" {
-		t.Error("Preview returned empty result despite successful response")
+	if res.DocumentID == "" {
+		t.Error("Document returned empty result despite successful response")
 	}
 }
 
@@ -957,9 +991,7 @@ func TestDocumentDescriptor_DownloadPDF_perCallTimeoutFires(t *testing.T) {
 	serverURL = server.URL
 
 	client := newTestClient(t, server)
-	doc, err := client.Render.Document(context.Background(), polipage.ProjectModeInput{
-		Project: "x", Template: "y", Data: map[string]any{},
-	})
+	doc, err := client.Render.Document(context.Background(), minimalInput())
 	if err != nil {
 		t.Fatalf("Document err = %v", err)
 	}

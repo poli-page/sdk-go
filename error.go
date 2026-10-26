@@ -168,24 +168,37 @@ const (
 const (
 	ErrCodeMissingAPIKey              = "MISSING_API_KEY" //nolint:gosec // G101: error-code identifier, not a credential
 	ErrCodeInvalidAPIKey              = "INVALID_API_KEY" //nolint:gosec // G101: error-code identifier, not a credential
-	ErrCodePaymentRequired            = "PAYMENT_REQUIRED"
 	ErrCodeForbidden                  = "FORBIDDEN"
 	ErrCodeOrganizationCancelled      = "ORGANIZATION_CANCELLED"
 	ErrCodeOrganizationPurged         = "ORGANIZATION_PURGED"
+	ErrCodeOrganizationPaymentGrace   = "ORGANIZATION_PAYMENT_GRACE"
+	ErrCodeOrganizationMigrating      = "ORGANIZATION_MIGRATING"
+	ErrCodeEnvironmentMismatch        = "ENVIRONMENT_MISMATCH"
+	ErrCodeEnvironmentProtected       = "ENVIRONMENT_PROTECTED"
 	ErrCodeNotFound                   = "NOT_FOUND"
-	ErrCodeVersionNotFound            = "VERSION_NOT_FOUND"
+	ErrCodeProjectNotFound            = "PROJECT_NOT_FOUND"
+	ErrCodeProjectNotInEnvironment    = "PROJECT_NOT_IN_ENVIRONMENT"
+	ErrCodeTemplateNotFound           = "TEMPLATE_NOT_FOUND"
 	ErrCodeDocumentNotFound           = "DOCUMENT_NOT_FOUND"
-	ErrCodeGone                       = "GONE"
+	ErrCodeDocumentGone               = "DOCUMENT_GONE"
 	ErrCodeValidationError            = "VALIDATION_ERROR"
 	ErrCodeMissingData                = "MISSING_DATA"
-	ErrCodeMissingProjectOrTemplate   = "MISSING_PROJECT_OR_TEMPLATE"
 	ErrCodeMissingTemplateSlug        = "MISSING_TEMPLATE_SLUG"
 	ErrCodeProjectRequiredForDocument = "PROJECT_REQUIRED_FOR_DOCUMENT"
-	ErrCodeInvalidVersionFormat       = "INVALID_VERSION_FORMAT"
-	ErrCodeVersionRequired            = "VERSION_REQUIRED"
-	ErrCodeInvalidVersionForKeyEnv    = "INVALID_VERSION_FOR_KEY_ENV"
+	ErrCodeTemplateError              = "TEMPLATE_ERROR"
+	ErrCodeEmptyDocument              = "EMPTY_DOCUMENT"
+	ErrCodeRenderBodyTooLarge         = "RENDER_BODY_TOO_LARGE"
+	ErrCodeDocumentTooLarge           = "DOCUMENT_TOO_LARGE"
+	ErrCodeThumbnailsNotAvailable     = "THUMBNAILS_NOT_AVAILABLE"
 	ErrCodeQuotaExceeded              = "QUOTA_EXCEEDED"
 	ErrCodeOverageCapExceeded         = "OVERAGE_CAP_EXCEEDED"
+	ErrCodeRateLimitExceeded          = "RATE_LIMIT_EXCEEDED"
+	// ErrCodePublishInProgress is a 503 answered while a publish locks the
+	// project in the key's environment. Retried like any 5xx, honouring
+	// Retry-After.
+	ErrCodePublishInProgress   = "PUBLISH_IN_PROGRESS"
+	ErrCodeStorageAccessDenied = "STORAGE_ACCESS_DENIED"
+	ErrCodeRenderTimeout       = "RENDER_TIMEOUT"
 	// ErrCodeAPIInternalError shares the wire value "INTERNAL_ERROR" with
 	// ErrCodeInternalError; kept as a separate constant for call-site clarity.
 	ErrCodeAPIInternalError = "INTERNAL_ERROR"
@@ -204,9 +217,8 @@ var (
 	ErrUnauthorized          = &Error{Code: ErrCodeMissingAPIKey}         // also matches INVALID_API_KEY
 	ErrForbidden             = &Error{Code: ErrCodeForbidden}             //
 	ErrNotFound              = &Error{Code: ErrCodeNotFound}              //
-	ErrVersionNotFound       = &Error{Code: ErrCodeVersionNotFound}       //
 	ErrDocumentNotFound      = &Error{Code: ErrCodeDocumentNotFound}      //
-	ErrGone                  = &Error{Code: ErrCodeGone}                  //
+	ErrDocumentGone          = &Error{Code: ErrCodeDocumentGone}          // 410 — document deleted or expired
 	ErrValidation            = &Error{Code: ErrCodeValidationError}       //
 	ErrRateLimit             = &Error{Code: ErrCodeQuotaExceeded}         // also matches OVERAGE_CAP_EXCEEDED
 	ErrTimeout               = &Error{Code: ErrCodeTimeout}               //
@@ -214,7 +226,6 @@ var (
 	ErrNetwork               = &Error{Code: ErrCodeNetworkError}          //
 	ErrDownloadFailed        = &Error{Code: ErrCodeDownloadFailed}        //
 	ErrIOFailed              = &Error{Code: ErrCodeIOFailed}              // local filesystem write failure from RenderToFile
-	ErrPaymentRequired       = &Error{Code: ErrCodePaymentRequired}       // 402 — unpaid invoice / subscription lapsed
 	ErrOrganizationCancelled = &Error{Code: ErrCodeOrganizationCancelled} // 403 — subscription cancelled, service is read-only
 	ErrOrganizationPurged    = &Error{Code: ErrCodeOrganizationPurged}    // 410 — organization data has been purged
 )

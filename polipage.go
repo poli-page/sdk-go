@@ -31,7 +31,7 @@ import (
 // internal/constants instead, per sdk-go-plan.md §17.
 const (
 	// DefaultBaseURL is the production Poli Page API base URL. Override via
-	// option.WithBaseURL to target another environment.
+	// option.WithBaseURL to target another API host.
 	DefaultBaseURL = "https://api.poli.page"
 
 	// DefaultMaxRetries is the default retry budget: 2 retries on top of the

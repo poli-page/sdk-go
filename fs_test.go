@@ -21,10 +21,9 @@ func TestRenderToFile_writesPDFBytes(t *testing.T) {
 	client := newTestClient(t, server)
 
 	dst := filepath.Join(t.TempDir(), "out.pdf")
-	if err := polipage.RenderToFile(context.Background(), client, polipage.ProjectModeInput{
+	if err := polipage.RenderToFile(context.Background(), client, polipage.RenderInput{
 		Project: "billing", Template: "invoice",
-		Version: polipage.Opt("1.0.0"),
-		Data:    map[string]any{},
+		Data: map[string]any{},
 	}, dst); err != nil {
 		t.Fatalf("RenderToFile err = %v", err)
 	}
@@ -44,7 +43,7 @@ func TestRenderToFile_createsParentDirectories(t *testing.T) {
 	client := newTestClient(t, server)
 
 	dst := filepath.Join(t.TempDir(), "deeply", "nested", "out.pdf")
-	if err := polipage.RenderToFile(context.Background(), client, polipage.ProjectModeInput{
+	if err := polipage.RenderToFile(context.Background(), client, polipage.RenderInput{
 		Project: "x", Template: "y", Data: map[string]any{},
 	}, dst); err != nil {
 		t.Fatalf("RenderToFile err = %v", err)
@@ -64,7 +63,7 @@ func TestRenderToFile_overwritesExistingFile(t *testing.T) {
 	if err := os.WriteFile(dst, []byte("stale content"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := polipage.RenderToFile(context.Background(), client, polipage.ProjectModeInput{
+	if err := polipage.RenderToFile(context.Background(), client, polipage.RenderInput{
 		Project: "x", Template: "y", Data: map[string]any{},
 	}, dst); err != nil {
 		t.Fatalf("RenderToFile err = %v", err)
@@ -90,7 +89,7 @@ func TestRenderToFile_ioErrorReturnsErrIOFailed(t *testing.T) {
 	}
 	dst := filepath.Join(blocker, "out.pdf")
 
-	err := polipage.RenderToFile(context.Background(), client, polipage.ProjectModeInput{
+	err := polipage.RenderToFile(context.Background(), client, polipage.RenderInput{
 		Project: "x", Template: "y", Data: map[string]any{},
 	}, dst)
 	if !errors.Is(err, polipage.ErrIOFailed) {
@@ -116,7 +115,7 @@ func TestRenderToFile_renderErrorPropagatesWithoutCreatingFile(t *testing.T) {
 	client := newTestClient(t, server)
 
 	dst := filepath.Join(t.TempDir(), "should_not_exist.pdf")
-	err := polipage.RenderToFile(context.Background(), client, polipage.ProjectModeInput{
+	err := polipage.RenderToFile(context.Background(), client, polipage.RenderInput{
 		Project: "x", Template: "y", Data: map[string]any{},
 	}, dst)
 	if !errors.Is(err, polipage.ErrValidation) {
