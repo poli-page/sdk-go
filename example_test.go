@@ -198,13 +198,6 @@ func ExampleRenderToFile() {
 	}
 }
 
-// ExampleOpt shows the Opt helper: turning a literal value into a *T.
-func ExampleOpt() {
-	locale := polipage.Opt("fr-FR")
-	fmt.Println(*locale)
-	// Output: fr-FR
-}
-
 // ExampleError_typedInspection demonstrates the two idiomatic ways to
 // branch on errors returned by the SDK: errors.Is against the
 // package-level sentinels for quick checks, and errors.As to inspect

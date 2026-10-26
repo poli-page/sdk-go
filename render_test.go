@@ -17,14 +17,6 @@ import (
 	"github.com/poli-page/sdk-go/option"
 )
 
-// renderDocumentJSON is a canned 200 OK body for POST /v1/render matching
-// the deployed API's DocumentDescriptor shape.
-const renderDocumentJSON = `{
-	"documentId":"doc_1","organizationId":"org_1","environment":"sandbox",
-	"format":"A4","pageCount":3,"sizeBytes":100,"createdAt":"2026-05-21T10:00:00Z",
-	"metadata":{},"presignedPdfUrl":"https://s3.example/x","expiresAt":"2026-05-21T10:15:00Z"
-}`
-
 // minimalInput is the smallest valid render input for transport-level tests.
 func minimalInput() polipage.RenderInput {
 	return polipage.RenderInput{Project: "x", Template: "y", Data: map[string]any{}}
@@ -60,7 +52,7 @@ func TestRender_Document_sendsPOSTToRenderWithHeaders(t *testing.T) {
 			t.Errorf("Accept = %q, want application/json", got)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, renderDocumentJSON)
+		_, _ = io.WriteString(w, canonicalDescriptorJSON())
 	}))
 	defer server.Close()
 
@@ -73,8 +65,8 @@ func TestRender_Document_sendsPOSTToRenderWithHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Document err = %v, want nil", err)
 	}
-	if got.DocumentID != "doc_1" || got.PageCount != 3 || got.Environment != "sandbox" {
-		t.Fatalf("Document = %+v, want {DocumentID:doc_1, PageCount:3, Environment:sandbox}", got)
+	if got.DocumentID != "doc_abc" || got.PageCount != 2 || got.Environment != "sandbox" {
+		t.Fatalf("Document = %+v, want {DocumentID:doc_abc, PageCount:2, Environment:sandbox}", got)
 	}
 }
 
@@ -86,7 +78,7 @@ func renderBodyKeys(t *testing.T, in polipage.RenderInput) map[string]json.RawMe
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		bodySeen, _ = io.ReadAll(r.Body)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, renderDocumentJSON)
+		_, _ = io.WriteString(w, canonicalDescriptorJSON())
 	}))
 	defer server.Close()
 
@@ -155,7 +147,7 @@ func TestRender_Document_decodesAnyEnvironmentName(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, strings.Replace(renderDocumentJSON, `"environment":"sandbox"`, `"environment":"staging"`, 1))
+		_, _ = io.WriteString(w, strings.Replace(canonicalDescriptorJSON(), `"environment":"sandbox"`, `"environment":"staging"`, 1))
 	}))
 	defer server.Close()
 
@@ -250,7 +242,7 @@ func TestRender_Document_5xxRetriesThenSucceeds(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, renderDocumentJSON)
+		_, _ = io.WriteString(w, canonicalDescriptorJSON())
 	}))
 	defer server.Close()
 
@@ -296,7 +288,7 @@ func TestRender_Document_autoGeneratesIdempotencyKeyUUID4(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got = r.Header.Get("Idempotency-Key")
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, renderDocumentJSON)
+		_, _ = io.WriteString(w, canonicalDescriptorJSON())
 	}))
 	defer server.Close()
 
@@ -316,7 +308,7 @@ func TestRender_Document_customIdempotencyKeyOverridesAuto(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got = r.Header.Get("Idempotency-Key")
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, renderDocumentJSON)
+		_, _ = io.WriteString(w, canonicalDescriptorJSON())
 	}))
 	defer server.Close()
 
@@ -382,7 +374,7 @@ func TestRender_Document_onRetryHookFires(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, renderDocumentJSON)
+		_, _ = io.WriteString(w, canonicalDescriptorJSON())
 	}))
 	defer server.Close()
 
@@ -755,7 +747,7 @@ func TestRender_Document_perCallWithHeaderAttachesHeader(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got = r.Header.Get("X-Trace-Id")
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, renderDocumentJSON)
+		_, _ = io.WriteString(w, canonicalDescriptorJSON())
 	}))
 	defer server.Close()
 
@@ -779,7 +771,7 @@ func TestRender_Document_constructionWithHeaderAppliesToEveryRequest(t *testing.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seen = append(seen, r.Header.Get("X-Tenant"))
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, renderDocumentJSON)
+		_, _ = io.WriteString(w, canonicalDescriptorJSON())
 	}))
 	defer server.Close()
 
@@ -802,7 +794,7 @@ func TestRender_Document_perCallHeaderOverridesConstructionHeader(t *testing.T) 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got = r.Header.Get("X-Env")
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, renderDocumentJSON)
+		_, _ = io.WriteString(w, canonicalDescriptorJSON())
 	}))
 	defer server.Close()
 
@@ -824,7 +816,7 @@ func TestRender_Document_onRequestHookFires(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, renderDocumentJSON)
+		_, _ = io.WriteString(w, canonicalDescriptorJSON())
 	}))
 	defer server.Close()
 
@@ -860,7 +852,7 @@ func TestRender_Document_onRequestFiresPerAttempt(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, renderDocumentJSON)
+		_, _ = io.WriteString(w, canonicalDescriptorJSON())
 	}))
 	defer server.Close()
 
@@ -887,7 +879,7 @@ func TestRender_Document_onResponseHookFires(t *testing.T) {
 		w.Header().Set("X-Request-Id", "req_xyz")
 		// ~5ms response so DurationMs is non-zero.
 		time.Sleep(5 * time.Millisecond)
-		_, _ = io.WriteString(w, renderDocumentJSON)
+		_, _ = io.WriteString(w, canonicalDescriptorJSON())
 	}))
 	defer server.Close()
 
@@ -935,7 +927,7 @@ func TestRender_Document_onRequestOnResponsePanicsRecovered(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, renderDocumentJSON)
+		_, _ = io.WriteString(w, canonicalDescriptorJSON())
 	}))
 	defer server.Close()
 
@@ -956,7 +948,7 @@ func TestRender_Document_hookPanicDoesNotBreakRequest(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, renderDocumentJSON)
+		_, _ = io.WriteString(w, canonicalDescriptorJSON())
 	}))
 	defer server.Close()
 

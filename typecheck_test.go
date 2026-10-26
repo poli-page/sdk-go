@@ -43,14 +43,6 @@ func TestTypeShape_DocumentDescriptorHasNoVersionAndAStringEnvironment(t *testin
 	}
 }
 
-func TestOpt_returnsPointerToValue(t *testing.T) {
-	t.Parallel()
-	p := Opt("hello")
-	if p == nil || *p != "hello" {
-		t.Fatalf("Opt(\"hello\") = %v, want pointer to \"hello\"", p)
-	}
-}
-
 func TestTypeShape_RequestEvent(t *testing.T) {
 	t.Parallel()
 	var e RequestEvent

@@ -151,10 +151,3 @@ type DocumentDescriptor struct {
 	// of a Render.Document / Documents.Get call.
 	client *Client
 }
-
-// Opt returns a pointer to v, for optional pointer-typed values set from a
-// literal: polipage.Opt("fr-FR").
-//
-// Named for the intent (optional fields) rather than the mechanic
-// (pointers) — Go has no inline pointer-to-literal syntax.
-func Opt[T any](v T) *T { return &v }

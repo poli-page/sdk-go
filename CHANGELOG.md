@@ -17,6 +17,7 @@ with no deprecation window.
   `RenderInput` interface: the API removed `POST /v1/render/preview` and
   inline-HTML rendering. `Documents.Preview` stays.
 - The `Version` field of the render input and of `DocumentDescriptor`.
+- The `Opt` helper (its only use was `Version`).
 - The `Environment` type and its `EnvironmentSandbox` / `EnvironmentLive`
   constants.
 - Error codes `VERSION_NOT_FOUND`, `INVALID_VERSION_FORMAT`,
