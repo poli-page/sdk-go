@@ -83,8 +83,10 @@ func main() {
 		var perr *polipage.Error
 		if errors.As(err, &perr) {
 			if perr.IsRateLimitError() {
-				// Any 429, after the SDK's built-in retries: apply your own strategy.
-				return
+				// Any 429, after the SDK's built-in retries: queue the job for
+				// later, or report the failure as here.
+				fmt.Fprintln(os.Stderr, "rate limited, try again later; request id:", perr.RequestID)
+				os.Exit(1)
 			}
 			fmt.Println("code:", perr.Code, "request id:", perr.RequestID)
 		}

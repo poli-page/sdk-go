@@ -18,8 +18,9 @@
 //  6. Documents.Thumbnails
 //  7. Documents.Preview
 //  8. Documents.Delete
-//  9. not-found: renders template does-not-exist and prints the error's
-//     code, status, message and request id (404 TEMPLATE_NOT_FOUND)
+//  9. not-found: renders template does-not-exist, expects 404
+//     TEMPLATE_NOT_FOUND and prints the error's code, status, message and
+//     request id; any other result fails the demo
 package main
 
 import (
@@ -193,13 +194,10 @@ func run() error {
 	step(9, "not-found — render a template that does not exist")
 	fmt.Printf("  %s This step is meant to fail.\n", yellow("⚠"))
 	_, err = client.Render.PDF(ctx, notFoundInput())
-	if err == nil {
-		fmt.Printf("  %s unexpected: the render succeeded\n", red("✗"))
-		return errors.New("expected the not-found step to fail")
-	}
-	var pErr *polipage.Error
-	if !errors.As(err, &pErr) {
-		return fmt.Errorf("expected *polipage.Error; got %T", err)
+	pErr, err := notFoundError(err)
+	if err != nil {
+		fmt.Printf("  %s %v\n", red("✗"), err)
+		return err
 	}
 	fmt.Printf("  %s caught *polipage.Error:\n", green("✔"))
 	fmt.Printf("    code:      %s\n", pErr.Code)
@@ -223,6 +221,20 @@ func writeArtifact(name string, content []byte) error {
 
 func writeArtifactString(name, content string) error {
 	return writeArtifact(name, []byte(content))
+}
+
+// notFoundError returns err as a *polipage.Error when it is the 404
+// TEMPLATE_NOT_FOUND the not-found step expects, and an error otherwise, so
+// a network failure or any other API error fails the demo.
+func notFoundError(err error) (*polipage.Error, error) {
+	if err == nil {
+		return nil, errors.New("not-found: expected 404 TEMPLATE_NOT_FOUND, but the render succeeded")
+	}
+	var pErr *polipage.Error
+	if !errors.As(err, &pErr) || pErr.StatusCode != 404 || pErr.Code != polipage.ErrCodeTemplateNotFound {
+		return nil, fmt.Errorf("not-found: expected 404 TEMPLATE_NOT_FOUND, got: %w", err)
+	}
+	return pErr, nil
 }
 
 func isErrCode(err error, code string) bool {

@@ -105,7 +105,7 @@ The demo reads `POLI_PAGE_API_KEY` and the optional `POLI_PAGE_BASE_URL` from th
 6. `Documents.Thumbnails` (the demo carries on if the plan does not include thumbnails)
 7. `Documents.Preview`
 8. `Documents.Delete`
-9. `not-found`: renders template `does-not-exist` with empty data. The API answers `404 TEMPLATE_NOT_FOUND`, and the demo prints the error's code, status, message and request id.
+9. `not-found`: renders template `does-not-exist` with empty data. The API answers `404 TEMPLATE_NOT_FOUND`, and the demo prints the error's code, status, message and request id. Any other result (a success, a network error, another API error) fails the demo.
 
 ### Stream — for large PDFs or piping to S3 / HTTP responses
 
@@ -242,7 +242,9 @@ A sentinel matches by error code, not by HTTP status. `ErrRateLimit` matches `QU
 var pErr *polipage.Error
 if errors.As(err, &pErr) {
     switch pErr.Code {
-    case polipage.ErrCodeProjectNotFound, polipage.ErrCodeProjectNotInEnvironment:
+    case polipage.ErrCodeProjectNotFound:
+        return showBanner("No project matches this slug: check it, or whether the project was renamed or deleted.")
+    case polipage.ErrCodeProjectNotInEnvironment:
         return showBanner("The project is not published in this key's environment.")
     case polipage.ErrCodeTemplateNotFound:
         return show404()

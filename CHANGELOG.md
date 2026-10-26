@@ -7,8 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.10.0] - 2026-10-26
-
 Environments replace versions: an API key (`pp_{env}_…`) carries its
 environment and a render uses the project's copy published there. Breaking,
 with no deprecation window.
@@ -62,9 +60,9 @@ with no deprecation window.
   properties (watermarked, not counted, 30-day expiry). Template previews
   and inline HTML point to the playground, https://play.poli.page.
 - `cmd/demo` asks for a `sandbox` key and checks a pasted key's format
-  only. Its last step, `not-found`, renders template `does-not-exist` and
-  prints the error's code, status, message and request id
-  (`404 TEMPLATE_NOT_FOUND`).
+  only. Its last step, `not-found`, renders template `does-not-exist`,
+  expects `404 TEMPLATE_NOT_FOUND` and prints the error's code, status,
+  message and request id; any other result fails the demo.
 - The docs reference lists the new error codes per method.
 - `MIGRATION.md` has a "From 0.9.x to 0.10.0" entry.
 

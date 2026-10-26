@@ -27,7 +27,7 @@ this release removes them from the SDK with no deprecation window.
 | `MISSING_PROJECT_OR_TEMPLATE` | removed |
 | `ThumbnailOptions.Width` always sent | every field optional: a zero value is not sent (API defaults: 400 px, `jpeg`) |
 
-See [CHANGELOG.md](CHANGELOG.md#0100---2026-10-26) for the full list,
+See [CHANGELOG.md](CHANGELOG.md) for the full list,
 including the new error codes.
 
 ## 1.0

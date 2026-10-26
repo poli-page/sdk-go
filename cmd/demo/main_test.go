@@ -2,8 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
+
+	polipage "github.com/poli-page/sdk-go"
 )
 
 func TestIsAPIKey(t *testing.T) {
@@ -54,5 +58,40 @@ func TestNotFoundInputSendsEmptyDataObject(t *testing.T) {
 	const want = `{"project":"getting-started","template":"does-not-exist","data":{}}`
 	if string(body) != want {
 		t.Fatalf("body = %s, want %s", body, want)
+	}
+}
+
+func TestNotFoundErrorAcceptsOnly404TemplateNotFound(t *testing.T) {
+	want := &polipage.Error{Code: polipage.ErrCodeTemplateNotFound, StatusCode: 404, Message: "no such template", RequestID: "req_1"}
+	cases := []struct {
+		name string
+		err  error
+		ok   bool
+	}{
+		{"404 TEMPLATE_NOT_FOUND", want, true},
+		{"wrapped 404 TEMPLATE_NOT_FOUND", fmt.Errorf("render: %w", want), true},
+		{"no error", nil, false},
+		{"not a *polipage.Error", errors.New("boom"), false},
+		{"network error", &polipage.Error{Code: polipage.ErrCodeNetworkError, Message: "dial tcp"}, false},
+		{"500", &polipage.Error{Code: polipage.ErrCodeAPIInternalError, StatusCode: 500}, false},
+		{"404 PROJECT_NOT_FOUND", &polipage.Error{Code: polipage.ErrCodeProjectNotFound, StatusCode: 404}, false},
+		{"TEMPLATE_NOT_FOUND with another status", &polipage.Error{Code: polipage.ErrCodeTemplateNotFound, StatusCode: 400}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := notFoundError(c.err)
+			if c.ok {
+				if err != nil || got == nil || got.Code != want.Code || got.RequestID != want.RequestID {
+					t.Fatalf("notFoundError() = %v, %v; want the 404 TEMPLATE_NOT_FOUND error", got, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("notFoundError() = %v, nil; want an error", got)
+			}
+			if c.err != nil && !errors.Is(err, c.err) {
+				t.Errorf("notFoundError() error %v does not wrap %v", err, c.err)
+			}
+		})
 	}
 }
