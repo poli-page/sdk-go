@@ -20,7 +20,8 @@ import (
 
 client := polipage.NewClient(option.WithAPIKey(apiKey))
 
-// Render namespace (polipage.RenderInput: Project + Template + Data;
+// Render namespace (polipage.RenderInput: Project, Template, Data required;
+// Metadata, Format, Orientation, Locale optional, omitted when unset;
 // the project's copy published in the API key's environment is rendered)
 //   client.Render.PDF, PDFStream, Document
 
