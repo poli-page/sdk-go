@@ -37,7 +37,6 @@ client := polipage.NewClient(option.WithAPIKey(apiKey))
 same retry policy (5xx + 429 + network + timeout; jitter `[0.5, 1.5)`;
 Retry-After cap 30s), same error-code round-tripping, same predicate
 helpers (`IsAuthError` covers 401 + 403), same constructor validation,
-same hooks-never-break-the-request semantics, same project-mode-only
-constraint on `Render.PDF/PDFStream/Document`, same primitive-only
+same hooks-never-break-the-request semantics, same primitive-only
 `RenderMetadata`, same thumbnails wire wrap/unwrap, same
 `Documents.Preview` text/html + `X-Document-Page-Count` parsing.
