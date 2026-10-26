@@ -7,7 +7,7 @@ The Poli Page Go SDK retries transient failures automatically. Render and thumbn
 
 ## Default retry policy
 
-- `network_error`, `timeout`, 5xx responses, and 429 (`QUOTA_EXCEEDED`) are retried.
+- `network_error`, `timeout`, 5xx responses (including `503 PUBLISH_IN_PROGRESS`), and 429 responses (`QUOTA_EXCEEDED`, `RATE_LIMIT_EXCEEDED`, …) are retried.
 - Up to `option.WithMaxRetries(n)` attempts (default 2 — three total attempts).
 - Exponential backoff starting at `option.WithRetryDelay(d)` (default `500ms`), doubling each attempt with jitter.
 - Honors the `Retry-After` response header when present.
@@ -31,7 +31,7 @@ Every render and thumbnail request includes a UUID v4 `Idempotency-Key` header g
 If you orchestrate your own retries on top of the SDK (not recommended), supply your own deterministic key via `option.WithIdempotencyKey` as the last argument:
 
 ```go
-pdf, err := client.Render.PDF(ctx, polipage.ProjectModeInput{
+pdf, err := client.Render.PDF(ctx, polipage.RenderInput{
 	Project:  "billing",
 	Template: "invoice",
 	Data:     map[string]any{"invoiceNumber": "INV-001"},
@@ -61,7 +61,7 @@ func main() {
 		option.WithRetryDelay(250*time.Millisecond),
 	)
 
-	if _, err := client.Render.PDF(context.Background(), polipage.ProjectModeInput{
+	if _, err := client.Render.PDF(context.Background(), polipage.RenderInput{
 		Project:  "billing",
 		Template: "invoice",
 		Data:     map[string]any{"invoiceNumber": "INV-001"},

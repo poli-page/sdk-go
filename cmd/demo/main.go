@@ -4,11 +4,22 @@
 //	# or remote-only, no checkout:
 //	go run github.com/poli-page/sdk-go/cmd/demo@latest
 //
-// Walks every public method of the SDK in the order recommended for SDK
-// porters (see sdk-node/demo/README.md "Notes for SDK porters") and
-// writes the results under ./output/. Uses the getting-started project's
-// welcome template, provisioned in every organization's sandbox — no
-// project setup required for any newcomer with a fresh pp_sandbox_* key.
+// It reads POLI_PAGE_API_KEY (a pp_sandbox_ key) and the optional
+// POLI_PAGE_BASE_URL from the shell or ./.env, and asks for the key when
+// neither has it. It renders the welcome template of the getting-started
+// project, which every organization gets published in its sandbox
+// environment, then runs nine steps and writes the results under ./output/:
+//
+//  1. Render.PDF
+//  2. Render.PDFStream
+//  3. RenderToFile
+//  4. Render.Document
+//  5. Documents.Get
+//  6. Documents.Thumbnails
+//  7. Documents.Preview
+//  8. Documents.Delete
+//  9. not-found: renders template does-not-exist and prints the error's
+//     code, status, message and request id (404 TEMPLATE_NOT_FOUND)
 package main
 
 import (
@@ -20,6 +31,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	polipage "github.com/poli-page/sdk-go"
@@ -27,19 +39,40 @@ import (
 )
 
 const (
-	envFileName    = ".env"
-	defaultBaseURL = "https://api.poli.page"
-	outputDir      = "output"
-	totalSteps     = 9
+	envFileName = ".env"
+	outputDir   = "output"
+	totalSteps  = 9
 )
 
-// projectInput is the canonical demo input — getting-started/welcome is
-// auto-provisioned in every Poli Page org.
+// apiKeyPattern is the contract's full-key regex
+// ^pp_(?=[a-z][a-z0-9-]{0,19}_)[a-z][a-z0-9]*(?:-[a-z0-9]+)*_[0-9a-f]{32}$
+// without its lookahead, which Go's RE2 engine does not support. isAPIKey
+// applies the lookahead's 20-character limit to the captured environment
+// name instead.
+var apiKeyPattern = regexp.MustCompile(`^pp_([a-z][a-z0-9]*(?:-[a-z0-9]+)*)_[0-9a-f]{32}$`)
+
+// isAPIKey reports whether s has the shape of a Poli Page API key. It does
+// not check which environment the key names.
+func isAPIKey(s string) bool {
+	m := apiKeyPattern.FindStringSubmatch(s)
+	return m != nil && len(m[1]) <= 20
+}
+
 func projectInput() polipage.RenderInput {
 	return polipage.RenderInput{
 		Project:  "getting-started",
 		Template: "welcome",
 		Data:     map[string]any{"name": "SDK Demo"},
+	}
+}
+
+// notFoundInput names a template that does not exist. Data is an empty map,
+// not nil, so the body carries "data":{} rather than null.
+func notFoundInput() polipage.RenderInput {
+	return polipage.RenderInput{
+		Project:  "getting-started",
+		Template: "does-not-exist",
+		Data:     map[string]any{},
 	}
 }
 
@@ -156,25 +189,23 @@ func run() error {
 	}
 	fmt.Printf("  %s deleted %s\n", green("✔"), doc.DocumentID)
 
-	// 9. Error path — deliberately trigger a 404.
-	step(9, "Error path — deliberately trigger TEMPLATE_NOT_FOUND")
-	fmt.Printf("  %s This step is intentional — the SDK is about to fail.\n", yellow("⚠"))
-	_, err = client.Render.PDF(ctx, polipage.RenderInput{
-		Project: "getting-started", Template: "does-not-exist",
-		Data: map[string]any{},
-	})
+	// 9. not-found — the API answers 404 TEMPLATE_NOT_FOUND.
+	step(9, "not-found — render a template that does not exist")
+	fmt.Printf("  %s This step is meant to fail.\n", yellow("⚠"))
+	_, err = client.Render.PDF(ctx, notFoundInput())
 	if err == nil {
-		fmt.Printf("  %s unexpected: the bad call succeeded\n", red("✗"))
-		return errors.New("expected error path to fail")
+		fmt.Printf("  %s unexpected: the render succeeded\n", red("✗"))
+		return errors.New("expected the not-found step to fail")
 	}
 	var pErr *polipage.Error
 	if !errors.As(err, &pErr) {
 		return fmt.Errorf("expected *polipage.Error; got %T", err)
 	}
-	fmt.Printf("  %s caught polipage.Error via errors.As:\n", green("✔"))
-	fmt.Printf("    code=%s statusCode=%d requestId=%s\n", pErr.Code, pErr.StatusCode, pErr.RequestID)
-	fmt.Printf("    isAuthError=%v isValidationError=%v isRetryable=%v\n",
-		pErr.IsAuthError(), pErr.IsValidationError(), pErr.IsRetryable())
+	fmt.Printf("  %s caught *polipage.Error:\n", green("✔"))
+	fmt.Printf("    code:      %s\n", pErr.Code)
+	fmt.Printf("    status:    %d\n", pErr.StatusCode)
+	fmt.Printf("    message:   %s\n", pErr.Message)
+	fmt.Printf("    requestId: %s\n", pErr.RequestID)
 
 	fmt.Printf("\n%s %s Inspect %s\n\n", green("✔"), bold("All steps completed."), fileLink(outputDir))
 	return nil
@@ -224,7 +255,12 @@ func promptForAPIKey() (string, error) {
 	fmt.Println(rule)
 	fmt.Println()
 	fmt.Println("   This demo needs a sandbox key (" + cyan("pp_sandbox_*") + ") to talk to")
-	fmt.Println("   the Poli Page API. Sandbox keys never bill or send real documents.")
+	fmt.Println("   the Poli Page API. Sandbox renders are watermarked, do not count")
+	fmt.Println("   toward your monthly quota and expire after 30 days.")
+	fmt.Println()
+	fmt.Println("   It renders the getting-started project that every organization gets")
+	fmt.Println("   in its sandbox. If yours renamed, deleted or unpublished it, use a")
+	fmt.Println("   fresh organization.")
 	fmt.Println()
 	fmt.Println(bold("   How to get one:"))
 	fmt.Println("     1. Sign in at " + cyan("https://app.poli.page"))
@@ -250,6 +286,9 @@ func promptForAPIKey() (string, error) {
 	if key == "" {
 		return "", errors.New("no key entered")
 	}
+	if !isAPIKey(key) {
+		return "", errors.New("that is not a Poli Page API key: expected pp_{environment}_ followed by 32 lowercase hex characters")
+	}
 	if err := appendEnvFile(envFileName, "POLI_PAGE_API_KEY", key); err != nil {
 		return "", fmt.Errorf("save key to %s: %w", envFileName, err)
 	}
@@ -265,7 +304,7 @@ func resolveBaseURL() string {
 	if v := strings.TrimSpace(envVars["POLI_PAGE_BASE_URL"]); v != "" {
 		return v
 	}
-	return defaultBaseURL
+	return polipage.DefaultBaseURL
 }
 
 func readEnvFile(path string) (map[string]string, error) {

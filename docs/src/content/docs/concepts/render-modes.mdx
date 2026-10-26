@@ -1,39 +1,30 @@
 ---
-title: Render modes
-description: Project mode renders a stored template; inline mode renders raw HTML and is supported only by Render.Preview.
+title: Render input
+description: RenderInput names a template of a project; the render uses the project's copy published in the API key's environment.
 ---
 
-The Go SDK exposes two ways to describe what to render: **project mode** (a stored template at `project/template`) and **inline mode** (raw HTML you pass directly).
+Every render method (`Render.PDF`, `Render.PDFStream`, `Render.Document`, and the `RenderToFile` helper) takes one input type, `polipage.RenderInput`. It names a template of a project, and the render uses the project's copy published in the API key's environment. There is no version to pin and no inline-HTML input.
 
-Project mode is required by all the PDF-producing methods (`Render.PDF`, `Render.PDFStream`, `Render.Document`, and the `RenderToFile` helper) — their signatures only accept `ProjectModeInput`. Inline mode is supported only by `Render.Preview`, which returns HTML rather than PDF bytes and is useful for debugging template data without engaging the PDF pipeline.
+## Fields
 
-## Project mode
+- `Project`, `Template` (required) — the project and template slugs.
+- `Data` (required) — the values that fill the template. An empty `map[string]any{}` is sent as `{}`.
+- `Format`, `Orientation`, `Locale` (optional) — override the template's page format, orientation and locale.
+- `Metadata` (optional) — your own primitive values, stored with the document and echoed back.
 
-You reference a template by its `Project` and `Template` slugs, plus a `Data` map that fills the template's placeholders. Optionally pin a version with `polipage.Opt`.
+Unset optional fields are left out of the request.
 
 ```go
-pdf, err := client.Render.PDF(ctx, polipage.ProjectModeInput{
-	Project:  "billing",
-	Template: "invoice",
-	Data:     map[string]any{"invoiceNumber": "INV-001", "total": 1280},
-	Version:  polipage.Opt("1.0.0"),
+pdf, err := client.Render.PDF(ctx, polipage.RenderInput{
+	Project:     "billing",
+	Template:    "invoice",
+	Data:        map[string]any{"invoiceNumber": "INV-001", "total": 1280},
+	Format:      polipage.PageFormatA4,
+	Orientation: polipage.OrientationPortrait,
 })
 ```
 
-Project mode keeps templates centralized — anyone with dashboard access can edit them without touching code.
-
-## Inline mode (preview only)
-
-For one-off layout experiments, pass HTML directly via `InlineModeInput`. The `Template` field accepts raw HTML when there's no `Project`:
-
-```go
-preview, err := client.Render.Preview(ctx, polipage.InlineModeInput{
-	Template: "<h1>Hello {{ name }}</h1>",
-	Data:     map[string]any{"name": "World"},
-})
-```
-
-`Render.Preview` is the only method that accepts `InlineModeInput`. To turn inline HTML into a PDF, save it as a template in the dashboard first, then use project mode.
+To publish a template, publish its project to the key's environment. To try a template or raw HTML without an API key, use the playground at [play.poli.page](https://play.poli.page). The stored HTML of a document you already rendered stays available through `Documents.Preview`.
 
 ## Example
 
@@ -49,22 +40,12 @@ import (
 )
 
 func main() {
-	ctx := context.Background()
 	client := polipage.NewClient(option.WithAPIKey(os.Getenv("POLI_PAGE_API_KEY")))
 
-	// Project mode — PDF.
-	if _, err := client.Render.PDF(ctx, polipage.ProjectModeInput{
-		Project:  "billing",
-		Template: "invoice",
-		Data:     map[string]any{"invoiceNumber": "INV-001", "total": 1280},
-	}); err != nil {
-		panic(err)
-	}
-
-	// Inline mode — preview HTML only.
-	if _, err := client.Render.Preview(ctx, polipage.InlineModeInput{
-		Template: "<h1>Hello {{ name }}</h1>",
-		Data:     map[string]any{"name": "World"},
+	if _, err := client.Render.PDF(context.Background(), polipage.RenderInput{
+		Project:  "getting-started",
+		Template: "welcome",
+		Data:     map[string]any{"name": "SDK Demo"},
 	}); err != nil {
 		panic(err)
 	}
@@ -73,4 +54,4 @@ func main() {
 
 ## See also
 - [Output handling](../output-handling/)
-- [Configuration](../configuration/)
+- [Authentication](../authentication/)

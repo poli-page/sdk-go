@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-26
+
 Environments replace versions: an API key (`pp_{env}_…`) carries its
 environment and a render uses the project's copy published there. Breaking,
 with no deprecation window.
@@ -51,6 +53,20 @@ with no deprecation window.
   `RENDER_BODY_TOO_LARGE`, `DOCUMENT_TOO_LARGE` and `RENDER_TIMEOUT`.
   `503 PUBLISH_IN_PROGRESS` is retried like any 5xx, honouring
   `Retry-After`.
+
+### Documentation and demo
+
+- README and docs site: the quick start renders `getting-started`/`welcome`
+  with a `sandbox` key and no version. "Authentication & environments"
+  has the key format, its regex, the environment table and the `sandbox`
+  properties (watermarked, not counted, 30-day expiry). Template previews
+  and inline HTML point to the playground, https://play.poli.page.
+- `cmd/demo` asks for a `sandbox` key and checks a pasted key's format
+  only. Its last step, `not-found`, renders template `does-not-exist` and
+  prints the error's code, status, message and request id
+  (`404 TEMPLATE_NOT_FOUND`).
+- The docs reference lists the new error codes per method.
+- `MIGRATION.md` has a "From 0.9.x to 0.10.0" entry.
 
 ## [0.9.0-rc.1] - 2026-05-21
 

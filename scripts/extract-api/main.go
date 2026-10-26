@@ -360,8 +360,12 @@ type errorRow struct {
 func defaultErrors(extra ...errorRow) []errorRow {
 	base := []errorRow{
 		{"VALIDATION_ERROR", "Request body failed validation."},
-		{"NOT_FOUND", "Project/template slug or document does not exist."},
-		{"QUOTA_EXCEEDED", "Rate limit or monthly quota reached. Retryable."},
+		{"PROJECT_NOT_FOUND", "No project matches the slug."},
+		{"PROJECT_NOT_IN_ENVIRONMENT", "The project is not published in the key's environment."},
+		{"TEMPLATE_NOT_FOUND", "The published project has no template with that slug."},
+		{"QUOTA_EXCEEDED", "Per-key rate limit or monthly quota reached. Retryable."},
+		{"RATE_LIMIT_EXCEEDED", "Too many requests. Retryable."},
+		{"PUBLISH_IN_PROGRESS", "A publish holds the project in the key's environment. Retryable after Retry-After."},
 		{"timeout", "Per-request deadline exceeded. Retryable."},
 		{"network_error", "TCP/TLS failure reaching the API. Retryable."},
 		{"INTERNAL_ERROR", "API returned 5xx. Retryable."},
@@ -421,7 +425,13 @@ var methodTargets = []methodTarget{
 		slug: "documents-delete", displayName: "Documents.Delete",
 		receiver: "Documents", method: "Delete",
 		exampleDir: "documents-delete",
-		errorCodes: documentErrors(),
+		// No DOCUMENT_GONE: deleting an already-deleted document answers 204.
+		errorCodes: []errorRow{
+			{"DOCUMENT_NOT_FOUND", "No stored document matches the supplied id."},
+			{"ENVIRONMENT_PROTECTED", "The environment is protected: this key may not delete its documents."},
+			{"INVALID_API_KEY", "The API key is malformed or revoked."},
+			{"INTERNAL_ERROR", "API returned 5xx. Retryable."},
+		},
 	},
 	{
 		slug: "render-to-file", displayName: "RenderToFile",

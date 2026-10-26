@@ -1,16 +1,27 @@
 ---
 title: Migration
-description: Upgrade guides for moving between major versions of the Go SDK.
+description: Upgrade guides for the breaking changes between releases of the Go SDK.
 ---
 
-This page tracks breaking changes between major versions of `github.com/poli-page/sdk-go`. For the full per-release diff, see the [changelog](../changelog/).
+This page tracks breaking changes between releases of `github.com/poli-page/sdk-go`. Before 1.0, a breaking change bumps the minor version. For the full per-release diff, see the [changelog](../changelog/).
 
-## v1.0
+## From 0.9.x to 0.10.0
 
-The first stable release. The full v1.0 surface and renames from the pre-1.0 line are documented in [`MIGRATION.md` in the repo](https://github.com/poli-page/sdk-go/blob/main/MIGRATION.md).
+An API key now names its environment (`pp_{env}_…`), and a render uses the project's copy published in that environment. Template versions, the template preview and inline-HTML rendering are gone from the API, so they are gone from the SDK, with no deprecation window.
 
-Short version: every render call goes through the `Render` namespace (`Render.PDF`, `Render.Preview`, `Render.Document`, `Render.PDFStream`), the PDF-producing methods accept only `ProjectModeInput`, and inline mode is supported only on `Render.Preview`.
+- Rename `polipage.ProjectModeInput` to `polipage.RenderInput`, and drop its `Version` field. `polipage.Opt` is gone with it. Publish the project to the key's environment instead of pinning a version.
+- `Render.Preview`, `InlineModeInput` and `PreviewResult` are removed. Try a template or raw HTML in the playground at [play.poli.page](https://play.poli.page). `Documents.Preview` (the stored HTML of a rendered document) stays.
+- `DocumentDescriptor.Version` is removed. `DocumentDescriptor.Environment` is a plain `string`, and the `Environment` type and its `EnvironmentSandbox`/`EnvironmentLive` constants are removed: compare with `"sandbox"`, `"live"` or your own environment names.
+- Use `sandbox` keys (`pp_sandbox_…`) where you used test keys. Standard and service keys share the one `pp_{env}_…` format; see [Authentication](../../concepts/authentication/).
+- Replace the removed error codes and sentinels:
+  - `VERSION_NOT_FOUND`, `INVALID_VERSION_FORMAT`, `VERSION_REQUIRED`, `INVALID_VERSION_FOR_KEY_ENV` and `ErrVersionNotFound`: a render now fails with `PROJECT_NOT_FOUND`, `PROJECT_NOT_IN_ENVIRONMENT` or `TEMPLATE_NOT_FOUND`.
+  - `GONE` and `ErrGone`: use `DOCUMENT_GONE` and `ErrDocumentGone`.
+  - `PAYMENT_REQUIRED` and `ErrPaymentRequired`: past-due billing is reported as `ORGANIZATION_PAYMENT_GRACE`.
+  - `MISSING_PROJECT_OR_TEMPLATE` is removed.
+- `ThumbnailOptions.Width` is optional: a zero value is not sent and the API uses 400 px.
+
+The full list is in [`CHANGELOG.md`](https://github.com/poli-page/sdk-go/blob/main/CHANGELOG.md) and [`MIGRATION.md`](https://github.com/poli-page/sdk-go/blob/main/MIGRATION.md).
 
 ## See also
 - [Changelog](../changelog/)
-- [Render modes](../../concepts/render-modes/)
+- [Render input](../../concepts/render-modes/)
