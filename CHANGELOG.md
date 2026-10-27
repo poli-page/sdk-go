@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-27
+
 Environments replace versions: an API key (`pp_{env}_…`) carries its
 environment and a render uses the project's copy published there. Breaking,
 with no deprecation window.
