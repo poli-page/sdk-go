@@ -16,7 +16,7 @@ go func() {
 	cancel()
 }()
 
-pdf, err := client.Render.PDF(ctx, polipage.ProjectModeInput{
+pdf, err := client.Render.PDF(ctx, polipage.RenderInput{
 	Project:  "billing",
 	Template: "invoice",
 	Data:     map[string]any{"invoiceNumber": "INV-001"},
@@ -55,7 +55,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	_, err := client.Render.PDF(ctx, polipage.ProjectModeInput{
+	_, err := client.Render.PDF(ctx, polipage.RenderInput{
 		Project:  "billing",
 		Template: "invoice",
 		Data:     map[string]any{"invoiceNumber": "INV-001"},

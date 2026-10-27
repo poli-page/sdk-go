@@ -1,11 +1,11 @@
 ---
 title: Authentication
-description: How the Poli Page Go SDK authenticates with the API using test or live keys.
+description: How the Poli Page Go SDK authenticates with the API, and how an API key selects its environment.
 ---
 
 import ApiKeyCallout from '@preset/components/ApiKeyCallout.astro';
 
-The Poli Page Go SDK authenticates every request with a bearer token. The key prefix determines which environment the request hits.
+The Poli Page Go SDK authenticates every request with a bearer token. An API key belongs to one environment of your organization, and its text names that environment.
 
 ## API keys
 
@@ -19,7 +19,27 @@ client := polipage.NewClient(
 )
 ```
 
-The SDK never reads `POLI_PAGE_API_KEY` implicitly. You always pass the key in.
+The SDK never reads `POLI_PAGE_API_KEY` implicitly. You always pass the key in. It sends the key as is and never inspects or validates it.
+
+## Key format
+
+A key is `pp_{env}_` followed by 32 lowercase hex characters, where `{env}` is the environment's name: 1-20 characters, lowercase letters, digits and single inner hyphens, starting with a letter. Standard and service keys share this format. A full key matches:
+
+```text
+^pp_(?=[a-z][a-z0-9-]{0,19}_)[a-z][a-z0-9]*(?:-[a-z0-9]+)*_[0-9a-f]{32}$
+```
+
+## Environments
+
+| Environment                           | Key            | Watermark | Counted |
+| ------------------------------------- | -------------- | --------- | ------- |
+| `sandbox` (every org)                 | `pp_sandbox_…` | yes       | no      |
+| `live` (every org, deletable on Pro+) | `pp_live_…`    | no        | yes     |
+| created on Pro+ (e.g. `staging`)      | `pp_staging_…` | no        | yes     |
+
+"Counted" means the render counts toward the organization's monthly PDF quota. `sandbox` documents are watermarked, are not counted and expire 30 days after creation. There is no watermark option: a template that wants a watermark outside `sandbox` uses the `poli-watermark` class.
+
+A render uses the project's copy published in the key's environment. Every key uses the same endpoint, `https://api.poli.page`.
 
 ## Example
 

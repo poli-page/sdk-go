@@ -5,16 +5,16 @@ description: Render your first PDF with the Poli Page Go SDK in under 30 seconds
 
 import ApiKeyCallout from '@preset/components/ApiKeyCallout.astro';
 
-This page walks through your first render — from key to PDF bytes — without touching the dashboard.
+This page walks through your first render, from key to PDF bytes. It uses the `welcome` template of the `getting-started` project, which every organization gets published into its `sandbox` environment when the organization is created, so it needs no project setup.
 
 <ApiKeyCallout />
 
 ## Set your API key
 
-Export your key into the environment your program runs in:
+Create a `sandbox` key in the dashboard and export it into the environment your program runs in:
 
 ```bash
-export POLI_PAGE_API_KEY=pp_test_...
+export POLI_PAGE_API_KEY=pp_sandbox_x # replace with your key
 ```
 
 ## Render a PDF
@@ -35,10 +35,10 @@ func main() {
 		option.WithAPIKey(os.Getenv("POLI_PAGE_API_KEY")),
 	)
 
-	pdf, err := client.Render.PDF(context.Background(), polipage.ProjectModeInput{
-		Project:  "billing",
-		Template: "invoice",
-		Data:     map[string]any{"invoiceNumber": "INV-001", "total": 1280},
+	pdf, err := client.Render.PDF(context.Background(), polipage.RenderInput{
+		Project:  "getting-started",
+		Template: "welcome",
+		Data:     map[string]any{"name": "SDK Demo"},
 	})
 	if err != nil {
 		panic(err)
@@ -47,7 +47,9 @@ func main() {
 }
 ```
 
-`pdf` is a `[]byte`. Write it to disk, stream it to S3, or return it directly from an HTTP handler.
+`pdf` is a `[]byte`. Write it to disk, stream it to S3, or return it directly from an HTTP handler. There is no `version` to pass: the render uses the project's copy published in the key's environment.
+
+`getting-started` is a normal, editable project. If your organization renamed it, deleted it or removed it from `sandbox`, the API answers `404 PROJECT_NOT_FOUND` or `404 PROJECT_NOT_IN_ENVIRONMENT`; use a fresh organization. For your own templates, publish the project to the key's environment and swap the slugs. To try a template or raw HTML without an API key, use the playground at [play.poli.page](https://play.poli.page).
 
 ## Example
 
@@ -70,12 +72,12 @@ func main() {
 	if err := polipage.RenderToFile(
 		context.Background(),
 		client,
-		polipage.ProjectModeInput{
-			Project:  "billing",
-			Template: "invoice",
-			Data:     map[string]any{"invoiceNumber": "INV-001", "total": 1280},
+		polipage.RenderInput{
+			Project:  "getting-started",
+			Template: "welcome",
+			Data:     map[string]any{"name": "SDK Demo"},
 		},
-		"./invoices/INV-001.pdf",
+		"./out/welcome.pdf",
 	); err != nil {
 		panic(err)
 	}
@@ -84,5 +86,5 @@ func main() {
 
 ## See also
 - [Authentication](../../concepts/authentication/)
-- [Render modes](../../concepts/render-modes/)
+- [Render input](../../concepts/render-modes/)
 - [Output handling](../../concepts/output-handling/)

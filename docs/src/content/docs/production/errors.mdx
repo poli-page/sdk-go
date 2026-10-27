@@ -5,7 +5,9 @@ description: How the Poli Page Go SDK surfaces failures and how to handle each e
 
 import ErrorTable from '@preset/components/ErrorTable.astro';
 
-Every failure returned by the SDK is a `*polipage.Error`. Use `errors.As` to extract typed fields and `errors.Is` against the package-level sentinels (`ErrNotFound`, `ErrUnauthorized`, …) for quick branching.
+Every failure returned by the SDK is a `*polipage.Error`. Use `errors.As` to extract typed fields and `errors.Is` against the package-level sentinels (`ErrUnauthorized`, `ErrDocumentGone`, …) for quick branching.
+
+A sentinel matches by code, not by HTTP status. `ErrUnauthorized` matches `MISSING_API_KEY` and `INVALID_API_KEY`, and `ErrRateLimit` matches `QUOTA_EXCEEDED` and `OVERAGE_CAP_EXCEEDED`. To catch every `429`, use the `IsRateLimitError()` method; for a failed render, compare `Code` with `ErrCodeProjectNotFound`, `ErrCodeProjectNotInEnvironment` or `ErrCodeTemplateNotFound`.
 
 ## The error type
 
@@ -38,11 +40,17 @@ Returned by the Poli Page API. Uppercase, snake-case. The SDK forwards the code 
 <ErrorTable errors={[
   { code: 'INVALID_API_KEY', when: 'The API key is malformed or revoked.', recovery: 'Rotate the key in the dashboard.' },
   { code: 'MISSING_API_KEY', when: 'No API key was provided in the request.', recovery: 'Check WithAPIKey was supplied to NewClient.' },
-  { code: 'NOT_FOUND', when: 'The project/template slug or documentId does not exist.', recovery: 'Verify the slug/id; check the template is published in this environment.' },
-  { code: 'VALIDATION_ERROR', when: 'The Data map does not satisfy the template schema.', recovery: 'Inspect the template schema in the dashboard.' },
-  { code: 'MISSING_DATA', when: 'The request body lacks a required Data field.', recovery: 'Pass a non-nil Data on every render call (empty map is fine).' },
-  { code: 'QUOTA_EXCEEDED', when: 'You exceeded the per-key rate limit or monthly quota.', recovery: 'Automatically retried; bump tier for sustained higher throughput.' },
-  { code: 'PAYMENT_REQUIRED', when: 'The organization`s billing is past due.', recovery: 'Update the payment method in the dashboard.' },
+  { code: 'PROJECT_NOT_FOUND', when: 'No project matches the slug.', recovery: 'Check the slug. If getting-started was renamed or deleted, use a fresh organization.' },
+  { code: 'PROJECT_NOT_IN_ENVIRONMENT', when: 'The project is not published in the key\'s environment.', recovery: 'Publish the project to that environment, or use a key of the environment it is published in.' },
+  { code: 'TEMPLATE_NOT_FOUND', when: 'The published project has no template with that slug.', recovery: 'Check the template slug.' },
+  { code: 'DOCUMENT_NOT_FOUND', when: 'No stored document matches the documentId.', recovery: 'Check the id.' },
+  { code: 'DOCUMENT_GONE', when: 'The document was deleted or has expired (sandbox documents expire after 30 days).', recovery: 'Render it again.' },
+  { code: 'VALIDATION_ERROR', when: 'The request failed validation.', recovery: 'Read Message for the failing field.' },
+  { code: 'MISSING_DATA', when: 'The request body lacks the required Data field.', recovery: 'Pass a non-nil Data on every render call (an empty map is fine).' },
+  { code: 'QUOTA_EXCEEDED', when: 'The monthly quota or a per-key limit is reached (429).', recovery: 'Retried like any 429; raise the plan for more throughput.' },
+  { code: 'RATE_LIMIT_EXCEEDED', when: 'Too many requests (429).', recovery: 'Retried like any 429, honoring Retry-After.' },
+  { code: 'ORGANIZATION_PAYMENT_GRACE', when: 'The organization\'s billing is past due.', recovery: 'Update the payment method in the dashboard.' },
+  { code: 'PUBLISH_IN_PROGRESS', when: 'A publish holds the project in the key\'s environment (503).', recovery: 'Retried like any 5xx, honoring Retry-After.' },
   { code: 'INTERNAL_ERROR', when: 'The API returned 5xx.', recovery: 'Automatically retried; contact support if it persists.' },
 ]} />
 
@@ -66,19 +74,21 @@ import (
 func main() {
 	client := polipage.NewClient(option.WithAPIKey(os.Getenv("POLI_PAGE_API_KEY")))
 
-	_, err := client.Render.PDF(context.Background(), polipage.ProjectModeInput{
+	_, err := client.Render.PDF(context.Background(), polipage.RenderInput{
 		Project:  "billing",
 		Template: "invoice",
 		Data:     map[string]any{"invoiceNumber": "INV-001"},
 	})
-	if errors.Is(err, polipage.ErrRateLimit) {
-		// Custom strategy beyond the SDK's built-in retries.
-		return
-	}
 	if err != nil {
 		var perr *polipage.Error
 		if errors.As(err, &perr) {
-			fmt.Println("request id:", perr.RequestID)
+			if perr.IsRateLimitError() {
+				// Any 429, after the SDK's built-in retries: queue the job for
+				// later, or report the failure as here.
+				fmt.Fprintln(os.Stderr, "rate limited, try again later; request id:", perr.RequestID)
+				os.Exit(1)
+			}
+			fmt.Println("code:", perr.Code, "request id:", perr.RequestID)
 		}
 		panic(err)
 	}

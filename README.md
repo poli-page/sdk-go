@@ -28,7 +28,7 @@ Requires Go 1.25 or later. Zero runtime dependencies.
 
 ## Quick start
 
-### Project mode — render a published template by slug
+### Render the welcome template
 
 ```go
 package main
@@ -45,52 +45,41 @@ import (
 func main() {
     client := polipage.NewClient(option.WithAPIKey(os.Getenv("POLI_PAGE_API_KEY")))
 
-    pdf, err := client.Render.PDF(context.Background(), polipage.ProjectModeInput{
+    pdf, err := client.Render.PDF(context.Background(), polipage.RenderInput{
         Project:  "getting-started",
         Template: "welcome",
-        Version:  polipage.Opt("1.0.0"),
-        Data:     map[string]any{"name": "World"},
+        Data:     map[string]any{"name": "SDK Demo"},
     })
     if err != nil {
         log.Fatal(err)
     }
-    _ = os.WriteFile("welcome.pdf", pdf, 0o644)
+    if err := os.WriteFile("welcome.pdf", pdf, 0o644); err != nil {
+        log.Fatal(err)
+    }
 }
 ```
 
-Every Poli Page org comes pre-provisioned with a `getting-started/welcome` template, so the snippet above runs as-is the moment you have an API key — no project setup needed. For your own templates, swap the slugs once you've pushed a version with the `poli` CLI:
+Run it with a sandbox key: `POLI_PAGE_API_KEY=pp_sandbox_x go run .` (replace `pp_sandbox_x` with your key). Every organization gets a `getting-started` project with a `welcome` template, published into its `sandbox` environment when the organization is created, so the snippet runs as-is on a fresh organization. `getting-started` is a normal, editable project: if your organization renamed it, deleted it or removed it from `sandbox`, the API answers `404 PROJECT_NOT_FOUND` or `404 PROJECT_NOT_IN_ENVIRONMENT`. Use a fresh organization in that case.
+
+A render uses the project's copy published in the API key's environment. For your own templates, publish the project to that environment, then swap the slugs:
 
 ```go
-pdf, err := client.Render.PDF(ctx, polipage.ProjectModeInput{
+pdf, err := client.Render.PDF(ctx, polipage.RenderInput{
     Project:  "billing",
     Template: "invoice",
-    Version:  polipage.Opt("1.0.0"),
     Data:     map[string]any{"invoiceNumber": "INV-001", "total": 1280},
 })
 ```
 
-### Preview inline HTML
-
-`Render.Preview` accepts raw HTML for live editing and visual inspection without producing a stored document. Use this for editor previews or layout tests.
-
-```go
-res, err := client.Render.Preview(ctx, polipage.InlineModeInput{
-    Template: "<h1>Hello {{ name }}</h1>",
-    Data:     map[string]any{"name": "World"},
-})
-// res.HTML, res.TotalPages, res.Environment
-```
-
-**`Render.PDF`, `Render.PDFStream`, and `Render.Document` require project mode** — they accept [`ProjectModeInput`](https://pkg.go.dev/github.com/poli-page/sdk-go#ProjectModeInput) directly so inline-mode calls are rejected at compile time. `Render.Preview` accepts the [`RenderInput`](https://pkg.go.dev/github.com/poli-page/sdk-go#RenderInput) sealed interface, satisfied by both modes.
+To try a template or raw HTML without an API key, use the playground at [play.poli.page](https://play.poli.page).
 
 ### Write a PDF to disk
 
 ```go
-err := polipage.RenderToFile(ctx, client, polipage.ProjectModeInput{
+err := polipage.RenderToFile(ctx, client, polipage.RenderInput{
     Project:  "getting-started",
     Template: "welcome",
-    Version:  polipage.Opt("1.0.0"),
-    Data:     map[string]any{"name": "World"},
+    Data:     map[string]any{"name": "SDK Demo"},
 }, "./welcome.pdf")
 ```
 
@@ -98,7 +87,7 @@ err := polipage.RenderToFile(ctx, client, polipage.ProjectModeInput{
 
 ### Try it locally — runnable demo
 
-The repo ships a runnable demo that exercises every public method end-to-end against the real API:
+The repo ships a runnable demo that exercises every public method end-to-end against the API:
 
 ```bash
 go run ./cmd/demo
@@ -106,15 +95,25 @@ go run ./cmd/demo
 go run github.com/poli-page/sdk-go/cmd/demo@latest
 ```
 
-First run prompts for a `pp_test_*` key and saves it to `.env`. Subsequent runs are silent. The demo walks through `Render.PDF` → `PDFStream` → `RenderToFile` → `Preview` → `Document` → `Documents.Get` → `Thumbnails` → `Preview` → `Delete` → an intentional error path, writing artifacts to `./output/`.
+The demo reads `POLI_PAGE_API_KEY` and the optional `POLI_PAGE_BASE_URL` from the shell or `./.env`. With no key, it asks for a sandbox key (`pp_sandbox_…`), checks its format and saves it to `.env`, so later runs are silent. It renders `getting-started`/`welcome` and writes its output to `./output/`, in nine steps:
+
+1. `Render.PDF`
+2. `Render.PDFStream`
+3. `RenderToFile`
+4. `Render.Document`
+5. `Documents.Get`
+6. `Documents.Thumbnails` (the demo carries on if the plan does not include thumbnails)
+7. `Documents.Preview`
+8. `Documents.Delete`
+9. `not-found`: renders template `does-not-exist` with empty data. The API answers `404 TEMPLATE_NOT_FOUND`, and the demo prints the error's code, status, message and request id. Any other result (a success, a network error, another API error) fails the demo.
 
 ### Stream — for large PDFs or piping to S3 / HTTP responses
 
 ```go
-body, err := client.Render.PDFStream(ctx, polipage.ProjectModeInput{
-    Project: "billing", Template: "invoice",
-    Version: polipage.Opt("1.0.0"),
-    Data:    map[string]any{"invoiceNumber": "INV-001"},
+body, err := client.Render.PDFStream(ctx, polipage.RenderInput{
+    Project:  "billing",
+    Template: "invoice",
+    Data:     map[string]any{"invoiceNumber": "INV-001"},
 })
 if err != nil {
     return err
@@ -132,14 +131,13 @@ Every render produces a stored document, accessible via `documentId` for later d
 
 ```go
 // 1. Render and store
-doc, err := client.Render.Document(ctx, polipage.ProjectModeInput{
+doc, err := client.Render.Document(ctx, polipage.RenderInput{
     Project:  "billing",
     Template: "invoice",
-    Version:  polipage.Opt("1.0.0"),
     Data:     map[string]any{"invoiceNumber": "INV-001"},
     Metadata: polipage.RenderMetadata{"customerId": "cust_123"}, // your own audit data
 })
-// doc.DocumentID, doc.PageCount, doc.SizeBytes, doc.PresignedPDFURL, doc.Metadata, ...
+// doc.DocumentID, doc.Environment, doc.PageCount, doc.SizeBytes, doc.PresignedPDFURL, doc.Metadata, ...
 
 // 2. Save doc.DocumentID in your database
 _ = db.Invoices.Update("INV-001", doc.DocumentID)
@@ -154,7 +152,7 @@ thumbs, err := client.Documents.Thumbnails(ctx, doc.DocumentID, polipage.Thumbna
     Format: polipage.ThumbnailFormatPNG,
 })
 
-// 5. When done, soft-delete
+// 5. When done, soft-delete (deleting it again also succeeds)
 err = client.Documents.Delete(ctx, doc.DocumentID)
 ```
 
@@ -162,13 +160,21 @@ The presigned URL has a ~15-minute TTL. If `DownloadPDF` fails with `Code: ErrCo
 
 ## Authentication & environments
 
-The mode is determined by the API key prefix:
+An API key belongs to one environment of your organization, and its text names that environment: `pp_{env}_` followed by 32 lowercase hex characters. A full key matches:
 
-- `pp_test_…` → sandbox mode (not billed, generous rate limits)
-- `pp_live_…` → live mode (billed, production rate limits)
-- `pp_sa_…`   → service-account keys; environment matches the SA's configuration (sandbox or live)
+```text
+^pp_(?=[a-z][a-z0-9-]{0,19}_)[a-z][a-z0-9]*(?:-[a-z0-9]+)*_[0-9a-f]{32}$
+```
 
-All prefixes hit the same endpoint (`https://api.poli.page`). The SDK passes the key through as a Bearer token and never inspects the prefix — pick whichever fits your deploy model.
+| Environment                           | Key            | Watermark | Counted |
+| ------------------------------------- | -------------- | --------- | ------- |
+| `sandbox` (every org)                 | `pp_sandbox_…` | yes       | no      |
+| `live` (every org, deletable on Pro+) | `pp_live_…`    | no        | yes     |
+| created on Pro+ (e.g. `staging`)      | `pp_staging_…` | no        | yes     |
+
+"Counted" means the render counts toward the organization's monthly PDF quota. `sandbox` documents are watermarked, are not counted and expire 30 days after creation. There is no watermark option: a template that wants a watermark outside `sandbox` uses the `poli-watermark` class.
+
+A render uses the project's copy published in the key's environment, and `DocumentDescriptor.Environment` reports the environment a document was rendered in. Every key uses the same endpoint, `https://api.poli.page`. The SDK sends the key as a Bearer token and never inspects or validates it.
 
 ## Methods
 
@@ -176,12 +182,11 @@ All prefixes hit the same endpoint (`https://api.poli.page`). The SDK passes the
 | ----------------------------------------------------- | ------------------------------------ | ----------- |
 | `client.Render.PDF(ctx, in, opts...)`                 | `([]byte, error)`                    | Render a PDF, return bytes |
 | `client.Render.PDFStream(ctx, in, opts...)`           | `(io.ReadCloser, error)`             | Render and stream the response |
-| `client.Render.Preview(ctx, in, opts...)`             | `(*PreviewResult, error)`            | Paginated HTML preview |
 | `client.Render.Document(ctx, in, opts...)`            | `(*DocumentDescriptor, error)`       | Render and return descriptor (skip auto-download) |
-| `client.Documents.Get(ctx, id)`                       | `(*DocumentDescriptor, error)`       | Retrieve a stored document |
-| `client.Documents.Preview(ctx, id)`                   | `(*DocumentPreviewResult, error)`    | Stored document's paginated HTML |
-| `client.Documents.Thumbnails(ctx, id, options, ...)`  | `([]Thumbnail, error)`               | Page thumbnails (PNG/JPEG, base64) |
-| `client.Documents.Delete(ctx, id)`                    | `error`                              | Soft-delete a stored document |
+| `client.Documents.Get(ctx, id, opts...)`              | `(*DocumentDescriptor, error)`       | Retrieve a stored document |
+| `client.Documents.Preview(ctx, id, opts...)`          | `(*DocumentPreviewResult, error)`    | Stored document's paginated HTML |
+| `client.Documents.Thumbnails(ctx, id, options, opts...)` | `([]Thumbnail, error)`            | Page thumbnails (JPEG/WebP/PNG, base64) |
+| `client.Documents.Delete(ctx, id, opts...)`           | `error`                              | Soft-delete a stored document (a re-delete also succeeds) |
 | `(*DocumentDescriptor).DownloadPDF(ctx)`              | `([]byte, error)`                    | Fetch bytes from the descriptor's presigned URL |
 | `polipage.RenderToFile(ctx, client, in, path)`        | `error`                              | Render and stream to disk |
 
@@ -191,7 +196,7 @@ All options live in the [`option`](https://pkg.go.dev/github.com/poli-page/sdk-g
 
 | Option                                | Type                          | Default                  | Description |
 | ------------------------------------- | ----------------------------- | ------------------------ | ----------- |
-| `option.WithAPIKey(key)`               | `string`                      | (required)              | `pp_test_*` or `pp_live_*` API key |
+| `option.WithAPIKey(key)`               | `string`                      | (required)              | API key; it names its environment (`pp_{env}_…`) |
 | `option.WithBaseURL(url)`              | `string`                      | `https://api.poli.page` | API base URL |
 | `option.WithMaxRetries(n)`             | `int`                         | `2`                     | Retry budget on top of the initial attempt |
 | `option.WithRetryDelay(d)`             | `time.Duration`               | `500 * time.Millisecond`| Base exponential-backoff delay |
@@ -218,35 +223,42 @@ import (
 
 pdf, err := client.Render.PDF(ctx, in)
 if err != nil {
-    if errors.Is(err, polipage.ErrUnauthorized)  { return refreshCredentials() }
-    if errors.Is(err, polipage.ErrRateLimit)     { return queueForLater() }
-    if errors.Is(err, polipage.ErrNotFound)      { return show404() }
+    if errors.Is(err, polipage.ErrUnauthorized) { return refreshCredentials() } // MISSING_API_KEY or INVALID_API_KEY
 
     var pErr *polipage.Error
     if errors.As(err, &pErr) {
+        if pErr.IsRateLimitError()  { return queueForLater() } // any 429, after the SDK's own retries
         if pErr.IsValidationError() { log.Println("bad input:", pErr.Message) }
         if pErr.IsNetworkError()    { log.Println("network/timeout") }
-        if pErr.IsRetryable()       { /* SDK already retried up to MaxRetries */ }
         log.Printf("code=%s status=%d requestId=%s\n", pErr.Code, pErr.StatusCode, pErr.RequestID)
     }
     return err
 }
 ```
 
-For lifecycle and billing failures, route the user to actionable messages rather than treating them as opaque errors:
+A sentinel matches by error code, not by HTTP status. `ErrRateLimit` matches `QUOTA_EXCEEDED` and `OVERAGE_CAP_EXCEEDED`; to catch every `429`, use `IsRateLimitError()` as above. `ErrNotFound` matches only the generic `NOT_FOUND` code, so check the specific codes of a failed render:
 
 ```go
 var pErr *polipage.Error
 if errors.As(err, &pErr) {
     switch pErr.Code {
-    case polipage.ErrCodePaymentRequired:       return showBanner("Subscription has unpaid invoices.")
-    case polipage.ErrCodeOrganizationCancelled: return showBanner("Subscription cancelled — service is read-only.")
-    case polipage.ErrCodeOrganizationPurged:    return showBanner("Organization has been purged.")
-    case polipage.ErrCodeDocumentNotFound:      return show404()
-    case polipage.ErrCodeGone:                  return show410() // document was soft-deleted
+    case polipage.ErrCodeProjectNotFound:
+        return showBanner("No project matches this slug: check it, or whether the project was renamed or deleted.")
+    case polipage.ErrCodeProjectNotInEnvironment:
+        return showBanner("The project is not published in this key's environment.")
+    case polipage.ErrCodeTemplateNotFound:
+        return show404()
+    case polipage.ErrCodeOrganizationPaymentGrace:
+        return showBanner("Billing is past due.")
+    case polipage.ErrCodeOrganizationCancelled:
+        return showBanner("Subscription cancelled — service is read-only.")
+    case polipage.ErrCodeDocumentGone:
+        return show410() // the document was deleted or has expired
     }
 }
 ```
+
+Unknown codes from a newer API pass through verbatim in `pErr.Code`.
 
 ## Cancellation
 
@@ -343,12 +355,9 @@ _, err := client.Render.PDF(ctx, in, option.WithIdempotencyKey("inv-INV-001"))
 
 ## Type system
 
-The SDK uses Go's type system to enforce the contract at compile time:
-
-- `RenderInput` is a sealed marker interface (unexported method) satisfied by `ProjectModeInput` and `InlineModeInput` only. External types cannot satisfy it.
-- `Render.PDF`, `PDFStream`, and `Document` accept `ProjectModeInput` directly — passing `InlineModeInput` is a compile-time error.
-- Nullable wire fields (`ProjectID`, `Version`, `Orientation`, `Locale`, …) are `*string` to distinguish JSON `null` from empty strings.
-- `Opt[T any](v T) *T` turns a literal into a `*T` for optional fields: `Version: polipage.Opt("1.0.0")`.
+- `RenderInput` is a struct and the only input of `Render.PDF`, `PDFStream`, `Document` and `RenderToFile`. `Project`, `Template` and `Data` are required; `Format`, `Orientation`, `Locale` and `Metadata` are optional and left out of the request when unset. Pass a non-nil `Data` (an empty `map[string]any{}` is sent as `{}`).
+- `PageFormat`, `Orientation` and `ThumbnailFormat` are string types with named constants (`PageFormatA4`, `OrientationLandscape`, `ThumbnailFormatWebP`, …).
+- Nullable wire fields of `DocumentDescriptor` (`ProjectID`, `TemplateSlug`, `Orientation`, `Locale`, …) are `*string` to distinguish JSON `null` from empty strings. `Environment` is a plain `string`: any environment name the API returns.
 
 ## Concurrency & thread-safety
 
@@ -362,10 +371,9 @@ for i, inv := range invoices {
     wg.Add(1)
     go func(i int, inv Invoice) {
         defer wg.Done()
-        results[i], errs[i] = client.Render.Document(ctx, polipage.ProjectModeInput{
+        results[i], errs[i] = client.Render.Document(ctx, polipage.RenderInput{
             Project:  "billing",
             Template: "invoice",
-            Version:  polipage.Opt("1.0.0"),
             Data:     inv.Data(),
         })
     }(i, inv)
@@ -379,7 +387,7 @@ Server-side only. The SDK runs on:
 
 - **Go 1.25+** — current and N-1 stable Go releases.
 
-**Browsers / WebAssembly are not supported.** API keys (`pp_test_*`, `pp_live_*`) are secrets and must never be shipped to a browser. Call the SDK from your backend (HTTP server, CLI, worker, lambda) and proxy the result to the client.
+**Browsers / WebAssembly are not supported.** API keys are secrets, whatever their environment, and must never be shipped to a browser. Call the SDK from your backend (HTTP server, CLI, worker, lambda) and proxy the result to the client.
 
 ## Requirements
 

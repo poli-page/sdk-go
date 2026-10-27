@@ -7,7 +7,7 @@ description: Per-client and per-call functional options for timeouts, retries, a
 
 ## Construction-time options
 
-- `option.WithAPIKey(key)` (required) — your `pp_test_` or `pp_live_` key.
+- `option.WithAPIKey(key)` (required) — your API key. The key names its environment (`pp_{env}_…`); see [Authentication](../authentication/).
 - `option.WithBaseURL(url)` — override the API endpoint. Defaults to `https://api.poli.page`.
 - `option.WithTimeout(d)` — per-request fallback deadline. Applied when the caller's `context.Context` has no deadline of its own. Defaults to `60s`.
 - `option.WithMaxRetries(n)` — retry budget on top of the initial attempt. Defaults to `2` (three attempts total).

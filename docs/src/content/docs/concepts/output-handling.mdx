@@ -8,7 +8,7 @@ The Go SDK gives you four ways to handle a rendered PDF: in-memory `[]byte`, a s
 ## In-memory (`Render.PDF`)
 
 ```go
-pdf, err := client.Render.PDF(ctx, polipage.ProjectModeInput{
+pdf, err := client.Render.PDF(ctx, polipage.RenderInput{
 	Project:  "billing",
 	Template: "invoice",
 	Data:     map[string]any{"invoiceNumber": "INV-001"},
@@ -23,7 +23,7 @@ Best for documents that fit comfortably in process memory.
 For large PDFs or piping straight to an HTTP response or object store, use `Render.PDFStream` and let the SDK keep memory bounded. The caller MUST close the returned `io.ReadCloser`.
 
 ```go
-body, err := client.Render.PDFStream(ctx, polipage.ProjectModeInput{
+body, err := client.Render.PDFStream(ctx, polipage.RenderInput{
 	Project:  "billing",
 	Template: "invoice",
 	Data:     map[string]any{"invoiceNumber": "INV-001"},
@@ -43,7 +43,7 @@ The top-level `RenderToFile` helper streams bytes directly to disk with bounded 
 err := polipage.RenderToFile(
 	ctx,
 	client,
-	polipage.ProjectModeInput{Project: "billing", Template: "invoice", Data: map[string]any{}},
+	polipage.RenderInput{Project: "billing", Template: "invoice", Data: map[string]any{}},
 	"./out.pdf",
 )
 ```
@@ -53,7 +53,7 @@ err := polipage.RenderToFile(
 When you want the PDF to live on Poli Page's servers (for later download, preview, or thumbnails), use `Render.Document`. It returns a `*DocumentDescriptor` with `DocumentID`, `PresignedPDFURL`, and a `DownloadPDF` method.
 
 ```go
-doc, err := client.Render.Document(ctx, polipage.ProjectModeInput{
+doc, err := client.Render.Document(ctx, polipage.RenderInput{
 	Project:  "billing",
 	Template: "invoice",
 	Data:     map[string]any{"invoiceNumber": "INV-001"},
@@ -86,7 +86,7 @@ func main() {
 	if err := polipage.RenderToFile(
 		ctx,
 		client,
-		polipage.ProjectModeInput{
+		polipage.RenderInput{
 			Project:  "billing",
 			Template: "invoice",
 			Data:     map[string]any{"invoiceNumber": "INV-001", "total": 1280},
