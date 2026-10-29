@@ -401,3 +401,28 @@ func TestRetry_answerBodyDroppedMidReadIsRetried(t *testing.T) {
 		t.Errorf("attempts=%d retries=%d responses=%d server calls=%d, want 2, 1, 1, 2", a, r, o, c)
 	}
 }
+
+func TestRetry_cancelWhileReadingAnswerBodyIsAborted(t *testing.T) {
+	t.Parallel()
+	var calls atomic.Int32
+	var attempts, retries, responses atomic.Int32
+	server := partialAnswer(t, 1, false, &calls)
+	client := newTestClient(t, server,
+		option.WithOnRequest(func(polipage.RequestEvent) { attempts.Add(1) }),
+		option.WithOnRetry(func(polipage.RetryEvent) { retries.Add(1) }),
+		option.WithOnResponse(func(polipage.ResponseEvent) { responses.Add(1) }),
+	)
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(100*time.Millisecond, cancel)
+	_, err := client.Documents.Get(ctx, "doc_1")
+	var pErr *polipage.Error
+	if !errors.As(err, &pErr) || pErr.Code != polipage.ErrCodeAborted || pErr.Message != "Request was aborted" {
+		t.Fatalf("err = %v, want aborted", err)
+	}
+	if !errors.Is(err, context.Canceled) || pErr.IsRetryable() {
+		t.Errorf("errors.Is(context.Canceled) = %v, IsRetryable() = %v; want true, false", errors.Is(err, context.Canceled), pErr.IsRetryable())
+	}
+	if a, r, o, c := attempts.Load(), retries.Load(), responses.Load(), calls.Load(); a != 1 || r != 0 || o != 0 || c != 1 {
+		t.Errorf("attempts=%d retries=%d responses=%d server calls=%d, want 1, 0, 0, 1", a, r, o, c)
+	}
+}
