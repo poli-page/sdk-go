@@ -309,10 +309,13 @@ type mockServer struct {
 func startMockServer(steps []mockStep) *mockServer {
 	m := &mockServer{steps: steps, done: make(chan struct{})}
 	m.srv = httptest.NewUnstartedServer(http.HandlerFunc(m.serve))
-	// One connection per request. Here the API and the storage share one origin, so the
-	// download would reuse the render's keep-alive connection, and net/http's Transport resends
-	// a replayable request (a GET, or a POST with Idempotency-Key) once when a reused
-	// connection dies before any answer: the server would see a request the SDK never made.
+	// One connection per request, because this mock serves the API and the presigned download
+	// on one origin, where production storage (S3) is another host. With keep-alive the
+	// download would reuse the render's connection, and net/http's Transport resends a bodyless
+	// GET once when a reused connection dies before any answer: `download.network` would see a
+	// request the SDK never made. That resend is safe for a GET and accepted. The SDK makes its
+	// POSTs non-replayable; retry_test.go (TestRetry_postIsNeverResentByTheTransport) covers that
+	// with keep-alive on.
 	m.srv.Config.SetKeepAlivesEnabled(false)
 	m.srv.Start()
 	return m

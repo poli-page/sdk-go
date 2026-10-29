@@ -238,6 +238,16 @@ func (c *Client) sendOnce(ctx context.Context, method, path string, bodyBytes []
 		cleanup()
 		return nil, retryAfter{}, false, &Error{Code: ErrCodeInvalidOptions, Message: "failed to build request: " + err.Error(), Cause: err}
 	}
+	if bodyBytes != nil {
+		// net/http's Transport silently resends a "replayable" request once
+		// when a reused keep-alive connection dies before any answer, and a
+		// POST with GetBody and an Idempotency-Key header counts as one.
+		// The API does not deduplicate on that key, so a hidden resend could
+		// store a second document. Without GetBody the failure surfaces as
+		// network_error and goes through the SDK's own retry: counted by
+		// maxRetries, reported to OnRequest and OnRetry.
+		req.GetBody = nil
+	}
 	req.Header = httpx.BuildHeaders(method, c.cfg.APIKey, per.IdempotencyKey, c.userAgent())
 	// Construction-time custom headers, then per-call overrides. Caller's
 	// keys may overwrite the SDK's own; documented in option.WithHeader.

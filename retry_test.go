@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -227,6 +228,92 @@ func TestErrors_sdkMessagesAreTheSpecTexts(t *testing.T) {
 			}
 			if tc.cause && (pErr.Cause == nil || errors.Unwrap(err) != pErr.Cause) {
 				t.Errorf("Cause = %v, want the transport error, reachable through Unwrap", pErr.Cause)
+			}
+		})
+	}
+}
+
+// staleConnServer answers the first request, then closes the connection of the second one
+// after reading it (a keep-alive connection that dies before any answer), then answers again.
+type staleConnServer struct {
+	*httptest.Server
+	mu    sync.Mutex
+	addrs []string
+}
+
+func newStaleConnServer(t *testing.T) *staleConnServer {
+	t.Helper()
+	s := &staleConnServer{}
+	s.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		s.mu.Lock()
+		s.addrs = append(s.addrs, r.RemoteAddr)
+		n := len(s.addrs)
+		s.mu.Unlock()
+		if n == 2 {
+			conn, _, err := w.(http.Hijacker).Hijack()
+			if err != nil {
+				t.Errorf("hijack: %v", err)
+				return
+			}
+			_ = conn.Close()
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, canonicalDescriptorJSON())
+	}))
+	t.Cleanup(s.Close)
+	return s
+}
+
+func (s *staleConnServer) requests() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.addrs...)
+}
+
+// TestRetry_postIsNeverResentByTheTransport checks that a POST whose reused keep-alive
+// connection dies is not silently resent by net/http: every request the server sees is an SDK
+// attempt, reported to OnRequest and counted by maxRetries.
+func TestRetry_postIsNeverResentByTheTransport(t *testing.T) {
+	t.Parallel()
+	for _, maxRetries := range []int{0, 2} {
+		t.Run("maxRetries="+strconv.Itoa(maxRetries), func(t *testing.T) {
+			t.Parallel()
+			server := newStaleConnServer(t)
+			var attempts, retries atomic.Int32
+			client := newTestClient(t, server.Server,
+				option.WithMaxRetries(maxRetries),
+				option.WithOnRequest(func(polipage.RequestEvent) { attempts.Add(1) }),
+				option.WithOnRetry(func(polipage.RetryEvent) { retries.Add(1) }),
+			)
+			if _, err := client.Render.Document(context.Background(), minimalInput()); err != nil {
+				t.Fatalf("first call: %v", err)
+			}
+			_, err := client.Render.Document(context.Background(), minimalInput())
+
+			got := server.requests()
+			if len(got) < 2 || got[1] != got[0] {
+				t.Fatalf("server saw %v: the second request did not reuse the first connection, so the test proves nothing", got)
+			}
+			if n := int(attempts.Load()); len(got) != n {
+				t.Errorf("server saw %d requests for %d SDK attempts: the transport resent a POST", len(got), n)
+			}
+			if maxRetries == 0 {
+				var pErr *polipage.Error
+				if !errors.As(err, &pErr) || pErr.Code != polipage.ErrCodeNetworkError {
+					t.Errorf("second call err = %v, want network_error (no retry allowed)", err)
+				}
+				if len(got) != 2 {
+					t.Errorf("server saw %d requests, want 2", len(got))
+				}
+			} else {
+				if err != nil {
+					t.Errorf("second call err = %v, want success after the SDK's own retry", err)
+				}
+				if n := retries.Load(); n != 1 {
+					t.Errorf("OnRetry fired %d times, want 1", n)
+				}
 			}
 		})
 	}
