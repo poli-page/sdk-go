@@ -51,6 +51,12 @@ now the specification's exact texts (`apiKey is required`,
 body, `project is required`). The `net/http` error behind a network, timeout or
 download failure is the error's `Cause`.
 
+### `Payload` JSON
+
+`json.Marshal(err.ToPayload())` now writes `"status": null` and
+`"requestId": null` when they are unknown, instead of leaving the keys out.
+The Go fields are unchanged.
+
 ### Download cancellation
 
 Canceling the context during the PDF download now returns `aborted`, not

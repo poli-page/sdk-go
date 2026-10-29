@@ -51,6 +51,11 @@ Conformance with the Poli Page API contract v1.1.0
   `DOWNLOAD_FAILED`, whether it happens before the storage answers or while
   the body is read. Canceling it while a 2xx API answer is read returns
   `aborted` instead of `INTERNAL_ERROR`.
+- **Breaking:** `json.Marshal` of a `Payload` (from `(*Error).ToPayload()`)
+  writes `"status": null` and `"requestId": null` when they are unknown, as
+  the SDK specification says; both keys used to be omitted. The Go fields
+  keep their types (`Status int`, `RequestID string`, zero when unknown).
+  JSON consumers that test for a missing key must test for `null`.
 - An error body whose `code`, `error`, `detail`, `title` or `message` is not
   a string ignores that field instead of being read as a non-JSON body; JSON
   that is not an object gives `unknown_error` and `HTTP <status>`.
@@ -64,6 +69,14 @@ Conformance with the Poli Page API contract v1.1.0
   connection drops mid-body. The read error is the `Cause`, so `errors.Is`
   (for example with `io.ErrUnexpectedEOF` or `context.Canceled`) and
   `errors.Unwrap` reach it.
+- A POST (`Render.*`, `Documents.Thumbnails`) is never resent behind the
+  SDK's back. `net/http`'s Transport resent it once when a reused keep-alive
+  connection died before any answer, because it carries `Idempotency-Key`:
+  `OnRequest` did not see that attempt, `WithMaxRetries` did not count it, and
+  as the API does not deduplicate, a render could be stored twice. The failure
+  now surfaces as `network_error` and goes through the SDK's own retry.
+  The transport may still resend a GET once on a stale keep-alive connection,
+  which stores nothing.
 - A retry wait is never shorter than asked: a timer that fires early is
   re-armed for the rest of the delay, measured on the monotonic clock.
 - Docs: the retries page and the README no longer claim the API

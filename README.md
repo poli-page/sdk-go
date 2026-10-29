@@ -347,7 +347,7 @@ Per-call header keys win over construction-time `WithHeader` entries for the sam
 
 ## Retries & idempotency
 
-The SDK retries on **5xx**, **429**, **network errors**, and **timeouts**, except `QUOTA_EXCEEDED`, `OVERAGE_CAP_EXCEEDED` (429) and `STORAGE_ACCESS_DENIED` (502), which waiting cannot fix: those are returned at once. Before retry `n` (1-based) the SDK waits `RetryDelay × 2^(n−1) × j`, with `j` a random factor in `[0.5, 1.5)`; a `Retry-After` header (integer seconds or HTTP-date, clamped to 30 s) replaces it when the server sends one. `Retry-After-Ms` is ignored. Every POST sends an auto-generated `Idempotency-Key` (UUID v4), the same on every retry of that call; the API does not deduplicate on it, so a retried render can store a second document. Pass `option.WithIdempotencyKey("…")` as the last argument to override:
+The SDK retries on **5xx**, **429**, **network errors**, and **timeouts**, except `QUOTA_EXCEEDED`, `OVERAGE_CAP_EXCEEDED` (429) and `STORAGE_ACCESS_DENIED` (502), which waiting cannot fix: those are returned at once. Before retry `n` (1-based) the SDK waits `RetryDelay × 2^(n−1) × j`, with `j` a random factor in `[0.5, 1.5)`; a `Retry-After` header (integer seconds or HTTP-date, clamped to 30 s) replaces it when the server sends one. `Retry-After-Ms` is ignored. Go's HTTP transport may resend a GET once on a stale keep-alive connection; it never resends a POST. Every POST sends an auto-generated `Idempotency-Key` (UUID v4), the same on every retry of that call; the API does not deduplicate on it, so a retried render can store a second document. Pass `option.WithIdempotencyKey("…")` as the last argument to override:
 
 ```go
 _, err := client.Render.PDF(ctx, in, option.WithIdempotencyKey("inv-INV-001"))
