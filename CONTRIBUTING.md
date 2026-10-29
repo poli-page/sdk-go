@@ -28,6 +28,17 @@ Install golangci-lint v2 once:
 go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
 ```
 
+## API contract tests
+
+CI also runs `contract_test.go` against the
+[Poli Page API contract](https://github.com/poli-page/api-contract), pinned by
+commit in `.github/workflows/ci.yml`: every SDK case of `contract.json` runs
+against a local mock server. Without `POLI_CONTRACT` the test is skipped
+locally (and fails when `CI` is set). To run it, download that version's
+`contract.json` and run `POLI_CONTRACT=<path to contract.json> go test ./...`.
+Case ids allowed to fail are listed, with the reason, in
+`tests/contract-skip.json`.
+
 ## Integration tests
 
 Integration tests hit the API. They are gated behind a build tag and the
@@ -53,12 +64,13 @@ minutes; `sum.golang.org` records the checksum for transparency.
 2. Move `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD` in `CHANGELOG.md`.
 3. If a MAJOR bump, add a section to `MIGRATION.md`.
 4. Commit `chore(release): vX.Y.Z` on `main`.
-5. Run the pre-flight verification locally:
+5. Run the pre-flight verification locally (`scripts/release.sh --dry-run vX.Y.Z`
+   does all of it, with the contract version CI pins):
    ```bash
    go vet ./...
    gofmt -l .
    golangci-lint run ./...
-   go test -race -count=1 ./...
+   POLI_CONTRACT=<path to contract.json> go test -race -count=1 ./...
    ```
 6. Tag locally: `git tag vX.Y.Z`.
 7. Push the tag when you're ready: `git push origin vX.Y.Z`.

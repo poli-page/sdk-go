@@ -363,7 +363,7 @@ func defaultErrors(extra ...errorRow) []errorRow {
 		{"PROJECT_NOT_FOUND", "No project matches the slug."},
 		{"PROJECT_NOT_IN_ENVIRONMENT", "The project is not published in the key's environment."},
 		{"TEMPLATE_NOT_FOUND", "The published project has no template with that slug."},
-		{"QUOTA_EXCEEDED", "Per-key rate limit or monthly quota reached. Retryable."},
+		{"QUOTA_EXCEEDED", "Monthly quota reached (429). Not retryable: it lasts until the monthly reset."},
 		{"RATE_LIMIT_EXCEEDED", "Too many requests. Retryable."},
 		{"PUBLISH_IN_PROGRESS", "A publish holds the project in the key's environment. Retryable after Retry-After."},
 		{"timeout", "Per-request deadline exceeded. Retryable."},
@@ -399,7 +399,7 @@ var methodTargets = []methodTarget{
 		slug: "render-document", displayName: "Render.Document",
 		receiver: "Render", method: "Document",
 		exampleDir: "render-document",
-		errorCodes: defaultErrors(errorRow{"PROJECT_REQUIRED_FOR_DOCUMENT", "Render.Document requires RenderInput.Project."}),
+		errorCodes: defaultErrors(errorRow{"PROJECT_REQUIRED_FOR_DOCUMENT", "RenderInput.Project is empty (`project is required`), checked before any request."}),
 	},
 	{
 		slug: "documents-get", displayName: "Documents.Get",
@@ -691,12 +691,12 @@ func renderErrorsPage() string {
 		When string `json:"when"`
 	}
 	sdkInternal := []row{
-		{"invalid_options", "Constructor options are missing or malformed."},
-		{"network_error", "TCP/TLS-level failure reaching the API. Retryable."},
-		{"timeout", "The request did not complete within the configured WithTimeout. Retryable."},
-		{"aborted", "Caller context was cancelled. Not retryable."},
+		{"invalid_options", "Constructor options are missing or malformed (`apiKey is required`)."},
+		{"network_error", "TCP/TLS-level failure reaching the API (`Network request failed`; the net/http error is the Cause). Retryable."},
+		{"timeout", "The request did not complete within the configured WithTimeout (`Request timed out after <ms>ms`). Retryable."},
+		{"aborted", "Caller context was cancelled, also during the PDF download (`Request was aborted`). Not retryable."},
 		{"io_failed", "Local filesystem write failed in RenderToFile."},
-		{"DOWNLOAD_FAILED", "Fetching a presigned PDF URL failed."},
+		{"DOWNLOAD_FAILED", "Fetching a presigned PDF URL failed: `Failed to download PDF: HTTP <status>` with the storage status, or `Failed to download PDF: network error` without one, also when the connection drops while the body is read. Not retried by the SDK."},
 	}
 	apiAuth := []row{
 		{"MISSING_API_KEY", "No API key in the request."},
@@ -722,7 +722,7 @@ func renderErrorsPage() string {
 		{"VALIDATION_ERROR", "The request body failed validation (unknown field, bad value)."},
 		{"MISSING_DATA", "Request body lacks the required Data field."},
 		{"MISSING_TEMPLATE_SLUG", "Template slug is missing."},
-		{"PROJECT_REQUIRED_FOR_DOCUMENT", "Render.Document requires RenderInput.Project."},
+		{"PROJECT_REQUIRED_FOR_DOCUMENT", "RenderInput.Project is empty (`project is required`), checked before any request."},
 		{"ENVIRONMENT_MISMATCH", "The resource belongs to another environment than the key's."},
 		{"TEMPLATE_ERROR", "The template failed to render with the supplied data."},
 		{"EMPTY_DOCUMENT", "The render produced no pages."},
@@ -730,15 +730,15 @@ func renderErrorsPage() string {
 		{"DOCUMENT_TOO_LARGE", "The document exceeds the engine's size or complexity limit."},
 	}
 	apiRate := []row{
-		{"QUOTA_EXCEEDED", "Per-key rate limit or monthly quota reached. Retryable."},
-		{"OVERAGE_CAP_EXCEEDED", "Hard overage cap reached. Not retryable."},
+		{"QUOTA_EXCEEDED", "Monthly quota reached (429). Not retryable: it lasts until the monthly reset."},
+		{"OVERAGE_CAP_EXCEEDED", "Overage cap reached (429). Not retryable: it lasts until the monthly reset."},
 		{"RATE_LIMIT_EXCEEDED", "Too many requests. Retryable."},
 	}
 	apiServer := []row{
-		{"INTERNAL_ERROR", "The API returned 5xx. Retryable."},
+		{"INTERNAL_ERROR", "The API returned 5xx, or an error answer whose body is not JSON (message `HTTP <status>`, real status kept). Retryable."},
 		{"PUBLISH_IN_PROGRESS", "A publish locks the project in the key's environment. Retryable after Retry-After."},
 		{"ORGANIZATION_MIGRATING", "The organization is being migrated. Retryable."},
-		{"STORAGE_ACCESS_DENIED", "The organization's own storage bucket could not be reached. Retryable."},
+		{"STORAGE_ACCESS_DENIED", "The organization's own storage bucket refuses access (502). Not retryable: restore the bucket role, then call again."},
 		{"RENDER_TIMEOUT", "The render did not finish in time. Retryable."},
 	}
 

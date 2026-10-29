@@ -5,6 +5,57 @@ This file documents breaking changes between releases of
 before 1.0 a breaking change bumps the minor version, from 1.0 on the
 major version, and every breaking change comes with an entry here.
 
+## From 0.10.0 to the next release (unreleased)
+
+The SDK now follows the retry policy and the error messages of the Poli Page
+API contract.
+
+### Three codes are no longer retried
+
+`QUOTA_EXCEEDED` and `OVERAGE_CAP_EXCEEDED` (429) and `STORAGE_ACCESS_DENIED`
+(502) are returned at once, and `IsRetryable()` returns `false` for them. A
+queue that requeues on `IsRetryable()` now drops these errors: handle them by
+code instead, for example hold quota errors until the monthly reset and alert
+on `STORAGE_ACCESS_DENIED` until the bucket role is restored.
+`IsRateLimitError()` is still `true` for the two 429s, and
+`errors.Is(err, polipage.ErrRateLimit)` still matches them.
+
+```go
+// 0.10.0
+if pErr.IsRetryable() { // was true for QUOTA_EXCEEDED
+    requeue(job)
+}
+
+// next release
+switch {
+case errors.Is(err, polipage.ErrRateLimit): // QUOTA_EXCEEDED or OVERAGE_CAP_EXCEEDED
+    holdUntilMonthlyReset(job)
+case pErr.IsRetryable():
+    requeue(job)
+}
+```
+
+### `Retry-After`
+
+`Retry-After: 0` now retries at once (it used to fall back to the backoff).
+Only integer seconds and HTTP-dates are read, clamped to 30 s; any other value
+falls back to the backoff.
+
+### Messages
+
+If you match error messages, match `Code` instead: the SDK-side messages are
+now the specification's exact texts (`apiKey is required`,
+`Network request failed`, `Request timed out after <ms>ms`,
+`Request was aborted`, `Failed to download PDF: HTTP <status>`,
+`Failed to download PDF: network error`, `HTTP <status>` for a non-JSON error
+body, `project is required`). The `net/http` error behind a network, timeout or
+download failure is the error's `Cause`.
+
+### Download cancellation
+
+Canceling the context during the PDF download now returns `aborted`, not
+`DOWNLOAD_FAILED`.
+
 ## From 0.9.x to 0.10.0
 
 An API key now names its environment (`pp_{env}_…`), and a render uses
