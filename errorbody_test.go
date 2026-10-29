@@ -17,9 +17,9 @@ import (
 
 // cutErrorBody answers status with an error body announced longer than it is. The bytes it
 // does send are a complete JSON object, so a client that parses them anyway picks up a code
-// and a message from a body it never received in full. Then onFlushed runs (when set) and the
-// server closes the connection (drop) or stalls until the client goes away.
-func cutErrorBody(t *testing.T, status int, drop bool, calls *atomic.Int32, onFlushed func()) *httptest.Server {
+// and a message from a body it never received in full. Then the server closes the connection
+// (drop) or stalls until the client goes away.
+func cutErrorBody(t *testing.T, status int, drop bool, calls *atomic.Int32) *httptest.Server {
 	t.Helper()
 	const sent = `{"error":"PUBLISH_IN_PROGRESS","detail":"from the partial body"}`
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -31,9 +31,6 @@ func cutErrorBody(t *testing.T, status int, drop bool, calls *atomic.Int32, onFl
 		w.WriteHeader(status)
 		_, _ = io.WriteString(w, sent)
 		w.(http.Flusher).Flush()
-		if onFlushed != nil {
-			onFlushed()
-		}
 		if drop {
 			return // the server closes the connection: the body ends early
 		}
@@ -41,6 +38,21 @@ func cutErrorBody(t *testing.T, status int, drop bool, calls *atomic.Int32, onFl
 	}))
 	t.Cleanup(server.Close)
 	return server
+}
+
+// cancelAfterHeaders cancels the call once a response's headers have arrived, before its body
+// is read.
+type cancelAfterHeaders struct {
+	base   http.RoundTripper
+	cancel context.CancelFunc
+}
+
+func (c cancelAfterHeaders) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := c.base.RoundTrip(req)
+	if err == nil {
+		c.cancel()
+	}
+	return resp, err
 }
 
 type hookCounts struct {
@@ -64,10 +76,11 @@ func TestErrorBody_cancelWhileReadingIsAborted(t *testing.T) {
 			var hooks hookCounts
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			// Cancel once the headers and part of the body are out, so the cancel
-			// always lands while the body is read.
-			server := cutErrorBody(t, status, false, &calls, cancel)
-			client := newTestClient(t, server, hooks.options()...)
+			server := cutErrorBody(t, status, false, &calls)
+			// Cancel as soon as the answer's headers are back, so the cancel always
+			// lands while the body is read (the server never sends the rest).
+			httpClient := &http.Client{Transport: cancelAfterHeaders{base: server.Client().Transport, cancel: cancel}}
+			client := newTestClient(t, server, append(hooks.options(), option.WithHTTPClient(httpClient))...)
 			_, err := client.Documents.Get(ctx, "doc_1")
 			var pErr *polipage.Error
 			if !errors.As(err, &pErr) || pErr.Code != polipage.ErrCodeAborted || pErr.Message != "Request was aborted" || pErr.StatusCode != 0 {
@@ -108,7 +121,7 @@ func TestErrorBody_droppedDuring400IsMalformedAndNotRetried(t *testing.T) {
 	t.Parallel()
 	var calls atomic.Int32
 	var hooks hookCounts
-	server := cutErrorBody(t, 400, true, &calls, nil)
+	server := cutErrorBody(t, 400, true, &calls)
 	client := newTestClient(t, server, hooks.options()...)
 	_, err := client.Documents.Get(context.Background(), "doc_1")
 	wantMalformedBody(t, err, 400, 1)
@@ -127,7 +140,7 @@ func TestErrorBody_droppedDuring503IsMalformedAndRetried(t *testing.T) {
 	t.Parallel()
 	var calls atomic.Int32
 	var hooks hookCounts
-	server := cutErrorBody(t, 503, true, &calls, nil)
+	server := cutErrorBody(t, 503, true, &calls)
 	client := newTestClient(t, server, hooks.options()...)
 	_, err := client.Documents.Get(context.Background(), "doc_1")
 	wantMalformedBody(t, err, 503, 3)
@@ -149,7 +162,7 @@ func TestErrorBody_stalledPastAttemptTimeoutKeepsStatusAndIsRetried(t *testing.T
 	t.Parallel()
 	var calls atomic.Int32
 	var hooks hookCounts
-	server := cutErrorBody(t, 503, false, &calls, nil)
+	server := cutErrorBody(t, 503, false, &calls)
 	client := newTestClient(t, server, append(hooks.options(), option.WithTimeout(150*time.Millisecond))...)
 	_, err := client.Documents.Get(context.Background(), "doc_1")
 	wantMalformedBody(t, err, 503, 3)
