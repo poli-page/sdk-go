@@ -696,7 +696,7 @@ func renderErrorsPage() string {
 		{"timeout", "The request did not complete within the configured WithTimeout (`Request timed out after <ms>ms`). Retryable."},
 		{"aborted", "Caller context was cancelled, also during the PDF download (`Request was aborted`). Not retryable."},
 		{"io_failed", "Local filesystem write failed in RenderToFile."},
-		{"DOWNLOAD_FAILED", "Fetching a presigned PDF URL failed: `Failed to download PDF: HTTP <status>` with the storage status, or `Failed to download PDF: network error` without one, also when the connection drops while the body is read. Not retried by the SDK."},
+		{"DOWNLOAD_FAILED", "Fetching a presigned PDF URL failed: `Failed to download PDF: HTTP <status>` with the storage status, or `Failed to download PDF: network error` without one, also when the connection drops while the body is read. Never retryable, whatever the storage status."},
 	}
 	apiAuth := []row{
 		{"MISSING_API_KEY", "No API key in the request."},

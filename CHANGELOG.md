@@ -7,12 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Conformance with the Poli Page API contract v1.1.0
+Conformance with the Poli Page API contract v1.3.0
 ([poli-page/api-contract](https://github.com/poli-page/api-contract)). See
 [MIGRATION.md](MIGRATION.md#from-0100-to-the-next-release-unreleased).
 
 ### Changed
 
+- **Breaking:** `DOWNLOAD_FAILED` is never retryable, whatever the storage status
+  (was retryable for a storage 5xx or 429). Contract v1.3.0.
 - **Breaking:** `QUOTA_EXCEEDED` and `OVERAGE_CAP_EXCEEDED` (429) and
   `STORAGE_ACCESS_DENIED` (502) are no longer retried, even with a
   `Retry-After` header, and `(*Error).IsRetryable()` now returns `false` for

@@ -30,7 +30,7 @@ These originate inside the SDK before any HTTP call (or in response to a network
   { code: 'timeout', when: 'The request did not complete within the configured WithTimeout. The message is `Request timed out after <ms>ms`.', recovery: 'Automatically retried up to WithMaxRetries times. Raise WithTimeout if it keeps tripping.' },
   { code: 'aborted', when: 'The caller-supplied context was cancelled, during a request, a retry wait or the PDF download. The message is `Request was aborted`.', recovery: 'Not retryable. Surface to the caller.' },
   { code: 'io_failed', when: 'A local filesystem write failed inside RenderToFile.', recovery: 'Fix the path / permissions. Unwrap to inspect the os error.' },
-  { code: 'DOWNLOAD_FAILED', when: 'Fetching a presigned PDF URL failed: `Failed to download PDF: HTTP <status>` with the storage `StatusCode` (an expired URL gets 403), or `Failed to download PDF: network error` without one, also when the connection drops while the body is read.', recovery: 'Call Documents.Get to refresh the presigned URL and retry.' },
+  { code: 'DOWNLOAD_FAILED', when: 'Fetching a presigned PDF URL failed: `Failed to download PDF: HTTP <status>` with the storage `StatusCode` (an expired URL gets 403), or `Failed to download PDF: network error` without one, also when the connection drops while the body is read.', recovery: 'Never retryable, whatever the storage status. Call Documents.Get to refresh the presigned URL and retry.' },
 ]} />
 
 ## API codes

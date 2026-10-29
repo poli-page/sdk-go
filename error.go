@@ -144,12 +144,13 @@ func (e *Error) IsNetworkError() bool {
 // IsRetryable reports whether the SDK considers this error retryable: a
 // network failure, a timeout, a 5xx or a 429, except QUOTA_EXCEEDED,
 // OVERAGE_CAP_EXCEEDED and STORAGE_ACCESS_DENIED, which last until the
-// monthly reset or until the bucket access is restored. Caller-aborted
-// requests are never retryable. The SDK already retries internally up to
+// monthly reset or until the bucket access is restored. A DOWNLOAD_FAILED is
+// never retryable, whatever the storage status. Caller-aborted requests are
+// never retryable. The SDK already retries internally up to
 // the configured limit; this predicate is useful when an outer queue or
 // scheduler decides whether to re-enqueue the job.
 func (e *Error) IsRetryable() bool {
-	if e.Code == ErrCodeAborted || isNonRetryableCode(e.Code) {
+	if e.Code == ErrCodeAborted || e.Code == ErrCodeDownloadFailed || isNonRetryableCode(e.Code) {
 		return false
 	}
 	if e.IsNetworkError() {

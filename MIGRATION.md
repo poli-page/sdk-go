@@ -35,6 +35,13 @@ case pErr.IsRetryable():
 }
 ```
 
+### `DOWNLOAD_FAILED` is never retryable
+
+`IsRetryable()` returns `false` for a `DOWNLOAD_FAILED` whatever the storage
+status; it was `true` for a storage 5xx or 429. A queue that requeues on
+`IsRetryable()` now drops it at once: call `Documents.Get` for a fresh
+presigned URL and download again.
+
 ### `Retry-After`
 
 `Retry-After: 0` now retries at once (it used to fall back to the backoff).
