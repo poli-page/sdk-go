@@ -84,7 +84,7 @@ func documentsThumbnails(c *polipage.Client) error {
 }
 
 // TestErrorCodes_knownAPICodesRoundTrip covers every API code of the
-// contract (31 in all), each with the status the API answers it with.
+// contract (32 in all), each with the status the API answers it with.
 func TestErrorCodes_knownAPICodesRoundTrip(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

@@ -213,7 +213,7 @@ func TestError_isRetryable(t *testing.T) {
 
 // TestErrorCodes_constantSetMatchesContract reads the ErrCode* constants
 // declared in error.go and checks their wire values are exactly the
-// contract's 31 API codes plus the SDK-internal codes: a removed code
+// contract's 32 API codes plus the SDK-internal codes: a removed code
 // left behind or a contract code missing both fail here.
 func TestErrorCodes_constantSetMatchesContract(t *testing.T) {
 	t.Parallel()

@@ -725,7 +725,7 @@ func renderErrorsPage() string {
 		{"PROJECT_REQUIRED_FOR_DOCUMENT", "RenderInput.Project is empty (`project is required`), checked before any request."},
 		{"ENVIRONMENT_MISMATCH", "The resource belongs to another environment than the key's."},
 		{"TEMPLATE_ERROR", "The template failed to render with the supplied data."},
-		{"TEMPLATE_UNSAFE", "The template, a partial or an SVG asset holds an injection attempt; `detail` names it. Not retryable."},
+		{"TEMPLATE_UNSAFE", "The template, a partial or an SVG asset holds an injection attempt; `detail` names it."},
 		{"EMPTY_DOCUMENT", "The render produced no pages."},
 		{"RENDER_BODY_TOO_LARGE", "The request body exceeds the render size limit."},
 		{"DOCUMENT_TOO_LARGE", "The document exceeds the engine's size or complexity limit."},
