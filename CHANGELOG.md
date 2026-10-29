@@ -49,8 +49,15 @@ Conformance with the Poli Page API contract v1.1.0
 - Canceling the context during the PDF download of `Render.PDF`,
   `Render.PDFStream` or `DownloadPDF` returns `aborted` instead of
   `DOWNLOAD_FAILED`, whether it happens before the storage answers or while
-  the body is read. Canceling it while a 2xx API answer is read returns
-  `aborted` instead of `INTERNAL_ERROR`.
+  the body is read.
+- A 2xx API answer is read in full inside its attempt. A body cut off
+  mid-read is `network_error` (`Network request failed`, the read error as
+  `Cause`), and a body that outlasts the attempt's timeout is `timeout`. Both
+  were `INTERNAL_ERROR` with status 200, which is not retryable; now they are
+  retried like any network failure or timeout (a retried render can then
+  store a second document, as with any retry after the request reached the
+  API). Canceling the context while the answer is read returns `aborted`.
+  `OnResponse` now fires once the body is read.
 - **Breaking:** `json.Marshal` of a `Payload` (from `(*Error).ToPayload()`)
   writes `"status": null` and `"requestId": null` when they are unknown, as
   the SDK specification says; both keys used to be omitted. The Go fields
@@ -77,8 +84,11 @@ Conformance with the Poli Page API contract v1.1.0
   now surfaces as `network_error` and goes through the SDK's own retry.
   The transport may still resend a GET once on a stale keep-alive connection,
   which stores nothing.
-- A retry wait is never shorter than asked: a timer that fires early is
-  re-armed for the rest of the delay, measured on the monotonic clock.
+  The cost: over HTTP/2, `net/http` also used to resend a POST that the server
+  refused before processing it (a refused stream or a `GOAWAY`). That case now
+  comes back as `network_error` too and goes through the SDK's own retry, one
+  backoff later; with `WithMaxRetries(0)` it reaches the caller. Such an
+  attempt was never processed, so retrying it cannot duplicate a render.
 - Docs: the retries page and the README no longer claim the API
   deduplicates on `Idempotency-Key`. It does not: the key is stable across the
   retries of one call, and a render retried after a late 5xx, a `timeout` or a

@@ -14,7 +14,8 @@ The Poli Page Go SDK retries transient failures automatically. Every POST carrie
 - Honors the `Retry-After` response header when present (integer seconds or an HTTP-date), clamped to 0–30 s, without jitter. `Retry-After-Ms` is ignored. Any other `Retry-After` value falls back to the backoff.
 - A wait is never shorter than its delay.
 - `aborted` (context cancelled) is never retried, and a cancellation during a wait returns at once. The presigned-URL download is never retried.
-- Go's HTTP transport may resend a GET once on a stale keep-alive connection; it never resends a POST. A POST whose connection dies surfaces as `network_error` and goes through the retry policy above.
+- Go's HTTP transport may resend a GET once on a stale keep-alive connection; it never resends a POST. A POST whose connection dies surfaces as `network_error` and goes through the retry policy above. That includes, over HTTP/2, a POST the server refused before processing it (a refused stream or a `GOAWAY`): it uses one SDK retry, and with `option.WithMaxRetries(0)` it is returned as `network_error`. Such an attempt was never processed, so retrying it cannot duplicate a render.
+- A 2xx answer whose body is cut off or outlasts the timeout while it is read is a `network_error` or `timeout`, retried like the others.
 
 ## Disabling retries
 

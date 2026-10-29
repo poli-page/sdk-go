@@ -46,6 +46,10 @@ func (e *Error) Unwrap() error { return e.Cause }
 // {code, message, status, requestId}. Status is the API HTTP status for
 // status-bearing failures, 503 for network failures, 504 for timeouts, and
 // 0 otherwise. In JSON, a zero Status and an empty RequestID are null.
+//
+// Do not embed Payload in another struct: its MarshalJSON is promoted, so
+// the embedding struct marshals as the Payload alone and its own fields
+// drop out of the JSON. Use a named field instead.
 type Payload struct {
 	Code      string `json:"code"`
 	Message   string `json:"message"`

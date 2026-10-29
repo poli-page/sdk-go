@@ -57,6 +57,35 @@ download failure is the error's `Cause`.
 `"requestId": null` when they are unknown, instead of leaving the keys out.
 The Go fields are unchanged.
 
+`Payload` now has its own `MarshalJSON`, and Go promotes it to any struct
+that embeds `Payload`: such a struct marshals as the `Payload` alone, and its
+other fields drop out of the JSON. Use a named field instead:
+
+```go
+// drops Path from the JSON
+type errorResponse struct {
+    polipage.Payload
+    Path string `json:"path"`
+}
+
+// keeps both
+type errorResponse struct {
+    Error polipage.Payload `json:"error"`
+    Path  string           `json:"path"`
+}
+```
+
+### Retries over HTTP/2 and mid-body failures
+
+The SDK no longer lets `net/http` resend a POST on its own. Over HTTP/2, a
+POST the server refused before processing it (refused stream, `GOAWAY`) used
+to be resent silently; it now comes back as `network_error` and uses one SDK
+retry. With `option.WithMaxRetries(0)` you get that `network_error`.
+
+A 2xx answer cut off while its body is read is now `network_error` (or
+`timeout`), retried by the SDK, instead of a non-retryable `INTERNAL_ERROR`
+with status 200.
+
 ### Download cancellation
 
 Canceling the context during the PDF download now returns `aborted`, not
