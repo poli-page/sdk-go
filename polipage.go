@@ -206,12 +206,13 @@ type retryAfter struct {
 }
 
 // sendOnce performs a single HTTP attempt. Returns (resp, {}, false, nil) on
-// 2xx; (nil, retryAfter, retryable, err) otherwise.
+// 2xx, with resp.Body already read into memory; (nil, retryAfter,
+// retryable, err) otherwise.
 //
-// When a per-attempt timeout context is created, ownership of cancel() is
-// transferred to the returned resp.Body via cancelOnClose — closing the
-// body cancels the context. This avoids the trap where deferring cancel()
-// inside sendOnce kills the body mid-read.
+// A 2xx body is read inside the attempt, under its timeout: a body that
+// drops or times out mid-read is this attempt's network_error or timeout,
+// retried like any other (spec §9.1). API answers are small JSON or HTML;
+// PDF bytes come from the presigned URL, never through here.
 func (c *Client) sendOnce(ctx context.Context, method, path string, bodyBytes []byte, per clientconfig.Config, attempt int) (*http.Response, retryAfter, bool, *Error) {
 	timeout := c.cfg.Timeout
 	if per.Timeout > 0 {
@@ -286,16 +287,25 @@ func (c *Client) sendOnce(ctx context.Context, method, path string, bodyBytes []
 	}
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		data, readErr := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		timedOut := errors.Is(attemptCtx.Err(), context.DeadlineExceeded)
+		cleanup()
+		if readErr != nil {
+			if ctx.Err() != nil {
+				return nil, retryAfter{}, false, mapContextError(ctx.Err())
+			}
+			if timedOut || errors.Is(readErr, context.DeadlineExceeded) {
+				return nil, retryAfter{}, true, &Error{Code: ErrCodeTimeout, Message: timeoutMessage(timeout), Cause: readErr}
+			}
+			return nil, retryAfter{}, true, &Error{Code: ErrCodeNetworkError, Message: "Network request failed", Cause: readErr}
+		}
 		c.fireOnResponse(clientconfig.ResponseEvent{
 			Status:     resp.StatusCode,
 			RequestID:  resp.Header.Get(constants.HeaderRequestID),
 			DurationMs: time.Since(t0).Milliseconds(),
 		})
-		if cancel != nil {
-			// Transfer ownership of cancel to the body: the caller cancels
-			// the per-attempt context when they close the body.
-			resp.Body = &cancelOnClose{ReadCloser: resp.Body, cancel: cancel}
-		}
+		resp.Body = io.NopCloser(bytes.NewReader(data))
 		return resp, retryAfter{}, false, nil
 	}
 
@@ -321,13 +331,10 @@ func (c *Client) sendOnce(ctx context.Context, method, path string, bodyBytes []
 	return nil, after, retryable, apiErr
 }
 
-// bodyReadError maps a failure reading or decoding a 2xx API body:
-// ErrCodeAborted when the caller canceled ctx meanwhile, else
-// ErrCodeInternalError with the answer's status. Cause wraps err.
-func bodyReadError(ctx context.Context, status int, what string, err error) *Error {
-	if errors.Is(ctx.Err(), context.Canceled) {
-		return mapContextError(ctx.Err())
-	}
+// bodyReadError maps a failure decoding a 2xx API body, which sendOnce has
+// already read in full: ErrCodeInternalError with the answer's status.
+// Cause wraps err.
+func bodyReadError(status int, what string, err error) *Error {
 	return &Error{Code: ErrCodeInternalError, StatusCode: status, Message: what + err.Error(), Cause: err}
 }
 
@@ -353,21 +360,6 @@ func defaultTransport() *http.Transport {
 	t.MaxIdleConnsPerHost = 10
 	t.IdleConnTimeout = 90 * time.Second
 	return t
-}
-
-// cancelOnClose wraps an http.Response.Body so that closing it also
-// cancels the per-attempt context. Solves the standard Go pitfall of
-// deferring cancel() in the request-building helper, which kills the body
-// before the caller can read it.
-type cancelOnClose struct {
-	io.ReadCloser
-	cancel context.CancelFunc
-}
-
-func (c *cancelOnClose) Close() error {
-	err := c.ReadCloser.Close()
-	c.cancel()
-	return err
 }
 
 // mapContextError turns a context error into an *Error with the right Code.

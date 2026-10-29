@@ -51,7 +51,7 @@ func (r *Render) Document(ctx context.Context, in RenderInput, opts ...option.Re
 	var doc DocumentDescriptor
 	if err := json.NewDecoder(resp.Body).Decode(&doc); err != nil {
 		_, _ = io.Copy(io.Discard, resp.Body)
-		return nil, bodyReadError(ctx, resp.StatusCode, "failed to decode response body: ", err)
+		return nil, bodyReadError(resp.StatusCode, "failed to decode response body: ", err)
 	}
 	if doc.Metadata == nil {
 		doc.Metadata = make(RenderMetadata)

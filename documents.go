@@ -36,7 +36,7 @@ func (d *Documents) Get(ctx context.Context, id string, opts ...option.RequestOp
 	var doc DocumentDescriptor
 	if err := json.NewDecoder(resp.Body).Decode(&doc); err != nil {
 		_, _ = io.Copy(io.Discard, resp.Body)
-		return nil, bodyReadError(ctx, resp.StatusCode, "failed to decode response body: ", err)
+		return nil, bodyReadError(resp.StatusCode, "failed to decode response body: ", err)
 	}
 	if doc.Metadata == nil {
 		doc.Metadata = make(RenderMetadata)
@@ -66,7 +66,7 @@ func (d *Documents) Preview(ctx context.Context, id string, opts ...option.Reque
 
 	html, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, bodyReadError(ctx, resp.StatusCode, "failed to read response body: ", err)
+		return nil, bodyReadError(resp.StatusCode, "failed to read response body: ", err)
 	}
 	pageCount := 0
 	if raw := resp.Header.Get(constants.HeaderDocumentPageCount); raw != "" {
@@ -110,7 +110,7 @@ func (d *Documents) Thumbnails(ctx context.Context, id string, options Thumbnail
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
 		_, _ = io.Copy(io.Discard, resp.Body)
-		return nil, bodyReadError(ctx, resp.StatusCode, "failed to decode response body: ", err)
+		return nil, bodyReadError(resp.StatusCode, "failed to decode response body: ", err)
 	}
 	return envelope.Thumbnails, nil
 }

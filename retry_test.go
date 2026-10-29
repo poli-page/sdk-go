@@ -318,3 +318,86 @@ func TestRetry_postIsNeverResentByTheTransport(t *testing.T) {
 		})
 	}
 }
+
+// partialAnswer answers 200 with a JSON descriptor announced at full length but cut after a
+// few bytes, then either closes the connection (drop) or stalls until the client goes away.
+// Requests after the first n get the full descriptor.
+func partialAnswer(t *testing.T, n int32, drop bool, calls *atomic.Int32) *httptest.Server {
+	t.Helper()
+	body := canonicalDescriptorJSON()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		if calls.Add(1) > n {
+			_, _ = io.WriteString(w, body)
+			return
+		}
+		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+		_, _ = io.WriteString(w, body[:10])
+		w.(http.Flusher).Flush()
+		if drop {
+			return // the server closes the connection: the body ends early
+		}
+		<-r.Context().Done()
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func TestRetry_answerBodyDroppedMidReadIsNetworkError(t *testing.T) {
+	t.Parallel()
+	var calls atomic.Int32
+	server := partialAnswer(t, 1, true, &calls)
+	client := newTestClient(t, server, option.WithMaxRetries(0))
+	_, err := client.Documents.Get(context.Background(), "doc_1")
+	var pErr *polipage.Error
+	if !errors.As(err, &pErr) {
+		t.Fatalf("err = %v (%T), want *Error", err, err)
+	}
+	if pErr.Code != polipage.ErrCodeNetworkError || pErr.Message != "Network request failed" || pErr.StatusCode != 0 {
+		t.Errorf("err = {%s %q %d}, want {network_error \"Network request failed\" 0}", pErr.Code, pErr.Message, pErr.StatusCode)
+	}
+	if !pErr.IsRetryable() || !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Errorf("IsRetryable() = %v, errors.Is(io.ErrUnexpectedEOF) = %v; want both true", pErr.IsRetryable(), errors.Is(err, io.ErrUnexpectedEOF))
+	}
+}
+
+func TestRetry_answerBodyTimeoutMidReadIsTimeout(t *testing.T) {
+	t.Parallel()
+	var calls atomic.Int32
+	server := partialAnswer(t, 1, false, &calls)
+	client := newTestClient(t, server, option.WithMaxRetries(0), option.WithTimeout(150*time.Millisecond))
+	_, err := client.Documents.Get(context.Background(), "doc_1")
+	var pErr *polipage.Error
+	if !errors.As(err, &pErr) {
+		t.Fatalf("err = %v (%T), want *Error", err, err)
+	}
+	if pErr.Code != polipage.ErrCodeTimeout || pErr.Message != "Request timed out after 150ms" || pErr.StatusCode != 0 {
+		t.Errorf("err = {%s %q %d}, want {timeout \"Request timed out after 150ms\" 0}", pErr.Code, pErr.Message, pErr.StatusCode)
+	}
+	if !pErr.IsRetryable() {
+		t.Error("IsRetryable() = false, want true")
+	}
+}
+
+func TestRetry_answerBodyDroppedMidReadIsRetried(t *testing.T) {
+	t.Parallel()
+	var calls atomic.Int32
+	var attempts, retries, responses atomic.Int32
+	server := partialAnswer(t, 1, true, &calls)
+	client := newTestClient(t, server,
+		option.WithOnRequest(func(polipage.RequestEvent) { attempts.Add(1) }),
+		option.WithOnRetry(func(polipage.RetryEvent) { retries.Add(1) }),
+		option.WithOnResponse(func(polipage.ResponseEvent) { responses.Add(1) }),
+	)
+	doc, err := client.Documents.Get(context.Background(), "doc_1")
+	if err != nil {
+		t.Fatalf("err = %v, want success on the second attempt", err)
+	}
+	if doc.DocumentID == "" {
+		t.Error("empty descriptor")
+	}
+	if a, r, o, c := attempts.Load(), retries.Load(), responses.Load(), calls.Load(); a != 2 || r != 1 || o != 1 || c != 2 {
+		t.Errorf("attempts=%d retries=%d responses=%d server calls=%d, want 2, 1, 1, 2", a, r, o, c)
+	}
+}
