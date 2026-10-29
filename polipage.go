@@ -314,8 +314,10 @@ func (c *Client) sendOnce(ctx context.Context, method, path string, bodyBytes []
 	defer func() { _ = resp.Body.Close() }()
 	bodyOut, readErr := io.ReadAll(resp.Body)
 	if readErr != nil && ctx.Err() != nil {
-		// The caller canceled while the error body was read: aborted at
-		// once, never retried, whatever the status.
+		// The caller's context ended while the error body was read: a
+		// cancel is aborted, the caller's own deadline is timeout; either
+		// way at once, never retried, whatever the status. The attempt
+		// timeout is not ctx: it falls through to the malformed-body path.
 		return nil, retryAfter{}, false, mapContextError(ctx.Err())
 	}
 	var code, message string

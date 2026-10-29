@@ -53,7 +53,7 @@ Returned by the Poli Page API. Uppercase, snake-case. The SDK forwards the code 
   { code: 'RATE_LIMIT_EXCEEDED', when: 'Too many requests (429).', recovery: 'Retried like any 429, honoring Retry-After.' },
   { code: 'ORGANIZATION_PAYMENT_GRACE', when: 'The organization\'s billing is past due.', recovery: 'Update the payment method in the dashboard.' },
   { code: 'PUBLISH_IN_PROGRESS', when: 'A publish holds the project in the key\'s environment (503).', recovery: 'Retried like any 5xx, honoring Retry-After.' },
-  { code: 'INTERNAL_ERROR', when: 'The API returned 5xx. Also the code of an error answer whose body is not JSON (a gateway page), with its real status and the message `HTTP <status>`.', recovery: 'Automatically retried; contact support if it persists.' },
+  { code: 'INTERNAL_ERROR', when: 'The API returned 5xx. Also the code of an error answer whose body is not JSON (a gateway page) or fails while it is read, with its real status and the message `HTTP <status>`.', recovery: 'Automatically retried; contact support if it persists.' },
 ]} />
 
 The full list of API codes lives in [the reference](../../reference/errors/).
