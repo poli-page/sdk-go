@@ -213,7 +213,7 @@ func TestError_isRetryable(t *testing.T) {
 
 // TestErrorCodes_constantSetMatchesContract reads the ErrCode* constants
 // declared in error.go and checks their wire values are exactly the
-// contract's 31 API codes plus the SDK-internal codes: a removed code
+// contract's 32 API codes plus the SDK-internal codes: a removed code
 // left behind or a contract code missing both fail here.
 func TestErrorCodes_constantSetMatchesContract(t *testing.T) {
 	t.Parallel()
@@ -251,7 +251,7 @@ func TestErrorCodes_constantSetMatchesContract(t *testing.T) {
 		// API codes added with environments.
 		"PUBLISH_IN_PROGRESS", "ENVIRONMENT_MISMATCH", "PROJECT_NOT_IN_ENVIRONMENT", "TEMPLATE_NOT_FOUND",
 		"DOCUMENT_GONE", "ENVIRONMENT_PROTECTED", "ORGANIZATION_PAYMENT_GRACE", "EMPTY_DOCUMENT",
-		"STORAGE_ACCESS_DENIED", "ORGANIZATION_MIGRATING", "PROJECT_NOT_FOUND", "TEMPLATE_ERROR",
+		"STORAGE_ACCESS_DENIED", "ORGANIZATION_MIGRATING", "PROJECT_NOT_FOUND", "TEMPLATE_ERROR", "TEMPLATE_UNSAFE",
 		"THUMBNAILS_NOT_AVAILABLE", "RATE_LIMIT_EXCEEDED", "RENDER_BODY_TOO_LARGE", "DOCUMENT_TOO_LARGE",
 		"RENDER_TIMEOUT",
 	}
