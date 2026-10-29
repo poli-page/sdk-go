@@ -69,6 +69,16 @@ Conformance with the Poli Page API contract v1.1.0
 
 ### Fixed
 
+- A non-2xx answer whose body fails while it is read no longer takes its code
+  and message from the bytes received so far, nor hides the read error. A
+  context canceled during that read returns `aborted` at once, whatever the
+  status (a caller deadline returns `timeout` at once): before, a 4xx gave the
+  partial body's code (or `INTERNAL_ERROR`), and a 5xx or 429 could fire
+  `OnRetry` before returning `aborted`. Any other read
+  failure is handled as a non-JSON error body: `INTERNAL_ERROR`,
+  `HTTP <status>`, the real status and request id (so a 5xx or 429 is still
+  retried), and the read error as `Cause`. That includes the attempt timeout
+  firing mid-body.
 - A failure while the PDF body is read no longer escapes as a raw `net/http`
   error: `Render.PDF`, `DownloadPDF` and reads of the `Render.PDFStream`
   stream return an `*Error`, `aborted` when the context is canceled mid-body

@@ -312,13 +312,30 @@ func (c *Client) sendOnce(ctx context.Context, method, path string, bodyBytes []
 	// non-2xx — parse body, classify, return *Error.
 	defer cleanup()
 	defer func() { _ = resp.Body.Close() }()
-	bodyOut, _ := io.ReadAll(resp.Body)
-	code, message := httpx.ParseErrorBody(bodyOut, resp.StatusCode)
+	bodyOut, readErr := io.ReadAll(resp.Body)
+	if readErr != nil && ctx.Err() != nil {
+		// The caller's context ended while the error body was read: a
+		// cancel is aborted, the caller's own deadline is timeout; either
+		// way at once, never retried, whatever the status. The attempt
+		// timeout is not ctx: it falls through to the malformed-body path.
+		return nil, retryAfter{}, false, mapContextError(ctx.Err())
+	}
+	var code, message string
+	if readErr != nil {
+		// A body that failed mid-read is malformed, even when the bytes
+		// received so far parse as JSON: treat it as a non-JSON body
+		// (INTERNAL_ERROR, "HTTP <status>"), keep the status so the retry
+		// rule still applies, and keep the read error as Cause.
+		code, message = ErrCodeInternalError, fmt.Sprintf("HTTP %d", resp.StatusCode)
+	} else {
+		code, message = httpx.ParseErrorBody(bodyOut, resp.StatusCode)
+	}
 	apiErr := &Error{
 		Code:       code,
 		StatusCode: resp.StatusCode,
 		Message:    message,
 		RequestID:  resp.Header.Get(constants.HeaderRequestID),
+		Cause:      readErr,
 	}
 	// One rule for the retry loop and for IsRetryable: 5xx and 429 are
 	// retried, except the codes waiting cannot fix (quota, storage access).
