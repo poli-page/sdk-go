@@ -223,6 +223,7 @@ const (
 	ErrCodeMissingTemplateSlug        = "MISSING_TEMPLATE_SLUG"
 	ErrCodeProjectRequiredForDocument = "PROJECT_REQUIRED_FOR_DOCUMENT"
 	ErrCodeTemplateError              = "TEMPLATE_ERROR"
+	ErrCodeTemplateUnsafe             = "TEMPLATE_UNSAFE"
 	ErrCodeEmptyDocument              = "EMPTY_DOCUMENT"
 	ErrCodeRenderBodyTooLarge         = "RENDER_BODY_TOO_LARGE"
 	ErrCodeDocumentTooLarge           = "DOCUMENT_TOO_LARGE"

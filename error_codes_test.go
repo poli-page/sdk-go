@@ -118,14 +118,15 @@ func TestErrorCodes_knownAPICodesRoundTrip(t *testing.T) {
 		{503, polipage.ErrCodeOrganizationMigrating, renderPDF},
 		{404, polipage.ErrCodeProjectNotFound, renderPDF},
 		{400, polipage.ErrCodeTemplateError, renderPDF},
+		{400, polipage.ErrCodeTemplateUnsafe, renderPDF},
 		{403, polipage.ErrCodeThumbnailsNotAvailable, documentsThumbnails},
 		{429, polipage.ErrCodeRateLimitExceeded, renderPDF},
 		{413, polipage.ErrCodeRenderBodyTooLarge, renderPDF},
 		{413, polipage.ErrCodeDocumentTooLarge, renderPDF},
 		{504, polipage.ErrCodeRenderTimeout, renderPDF},
 	}
-	if len(cases) != 31 {
-		t.Fatalf("len(cases) = %d, want the contract's 31 API codes", len(cases))
+	if len(cases) != 32 {
+		t.Fatalf("len(cases) = %d, want the 32 known API codes", len(cases))
 	}
 	for _, tc := range cases {
 		t.Run(fmt.Sprintf("%s_%d", tc.code, tc.status), func(t *testing.T) {
