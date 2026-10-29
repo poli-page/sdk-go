@@ -81,7 +81,7 @@ func NewClient(opts ...option.RequestOption) *Client {
 		}
 	}
 	if initErr == nil && cfg.APIKey == "" {
-		initErr = &Error{Code: ErrCodeInvalidOptions, Message: "option.WithAPIKey is required"}
+		initErr = &Error{Code: ErrCodeInvalidOptions, Message: "apiKey is required"}
 	}
 	if cfg.HTTPClient == nil {
 		cfg.HTTPClient = &http.Client{Transport: defaultTransport()}
@@ -161,10 +161,15 @@ func (c *Client) do(ctx context.Context, method, path string, body any, per clie
 
 	var lastErr *Error
 	var nextRetryAfter time.Duration
+	var hasRetryAfter bool
 
 	for attempt := 0; attempt <= c.cfg.MaxRetries; attempt++ {
 		if attempt > 0 {
-			delay := httpx.ComputeBackoff(attempt, c.cfg.RetryDelay, nextRetryAfter)
+			// A Retry-After header (even "0") sets the delay, without jitter.
+			delay := nextRetryAfter
+			if !hasRetryAfter {
+				delay = httpx.ComputeBackoff(attempt, c.cfg.RetryDelay)
+			}
 			c.fireOnRetry(clientconfig.RetryEvent{
 				Attempt: attempt + 1,
 				DelayMs: float64(delay) / float64(time.Millisecond),
@@ -182,7 +187,7 @@ func (c *Client) do(ctx context.Context, method, path string, body any, per clie
 		}
 
 		lastErr = err
-		nextRetryAfter = retryAfter
+		nextRetryAfter, hasRetryAfter = retryAfter.delay, retryAfter.ok
 		if !retryable {
 			c.fireOnError(err)
 			return nil, err
@@ -193,14 +198,21 @@ func (c *Client) do(ctx context.Context, method, path string, body any, per clie
 	return nil, lastErr
 }
 
-// sendOnce performs a single HTTP attempt. Returns (resp, 0, false, nil) on
+// retryAfter is the delay a failed answer's Retry-After header asks for;
+// ok is false when the header is absent or unparseable.
+type retryAfter struct {
+	delay time.Duration
+	ok    bool
+}
+
+// sendOnce performs a single HTTP attempt. Returns (resp, {}, false, nil) on
 // 2xx; (nil, retryAfter, retryable, err) otherwise.
 //
 // When a per-attempt timeout context is created, ownership of cancel() is
 // transferred to the returned resp.Body via cancelOnClose — closing the
 // body cancels the context. This avoids the trap where deferring cancel()
 // inside sendOnce kills the body mid-read.
-func (c *Client) sendOnce(ctx context.Context, method, path string, bodyBytes []byte, per clientconfig.Config, attempt int) (*http.Response, time.Duration, bool, *Error) {
+func (c *Client) sendOnce(ctx context.Context, method, path string, bodyBytes []byte, per clientconfig.Config, attempt int) (*http.Response, retryAfter, bool, *Error) {
 	timeout := c.cfg.Timeout
 	if per.Timeout > 0 {
 		timeout = per.Timeout
@@ -224,7 +236,7 @@ func (c *Client) sendOnce(ctx context.Context, method, path string, bodyBytes []
 	req, err := http.NewRequestWithContext(attemptCtx, method, url, body)
 	if err != nil {
 		cleanup()
-		return nil, 0, false, &Error{Code: ErrCodeInvalidOptions, Message: "failed to build request: " + err.Error(), Cause: err}
+		return nil, retryAfter{}, false, &Error{Code: ErrCodeInvalidOptions, Message: "failed to build request: " + err.Error(), Cause: err}
 	}
 	req.Header = httpx.BuildHeaders(method, c.cfg.APIKey, per.IdempotencyKey, c.userAgent())
 	// Construction-time custom headers, then per-call overrides. Caller's
@@ -253,12 +265,14 @@ func (c *Client) sendOnce(ctx context.Context, method, path string, bodyBytes []
 	if err != nil {
 		cleanup()
 		if ctx.Err() != nil {
-			return nil, 0, false, mapContextError(ctx.Err())
+			return nil, retryAfter{}, false, mapContextError(ctx.Err())
 		}
+		// The messages are the SDK specification's exact texts; the
+		// transport error stays available as Cause.
 		if errors.Is(err, context.DeadlineExceeded) {
-			return nil, 0, true, &Error{Code: ErrCodeTimeout, Message: fmt.Sprintf("request timed out after %v", timeout), Cause: err}
+			return nil, retryAfter{}, true, &Error{Code: ErrCodeTimeout, Message: timeoutMessage(timeout), Cause: err}
 		}
-		return nil, 0, true, &Error{Code: ErrCodeNetworkError, Message: err.Error(), Cause: err}
+		return nil, retryAfter{}, true, &Error{Code: ErrCodeNetworkError, Message: "Network request failed", Cause: err}
 	}
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
@@ -272,7 +286,7 @@ func (c *Client) sendOnce(ctx context.Context, method, path string, bodyBytes []
 			// the per-attempt context when they close the body.
 			resp.Body = &cancelOnClose{ReadCloser: resp.Body, cancel: cancel}
 		}
-		return resp, 0, false, nil
+		return resp, retryAfter{}, false, nil
 	}
 
 	// non-2xx — parse body, classify, return *Error.
@@ -280,20 +294,37 @@ func (c *Client) sendOnce(ctx context.Context, method, path string, bodyBytes []
 	defer func() { _ = resp.Body.Close() }()
 	bodyOut, _ := io.ReadAll(resp.Body)
 	code, message := httpx.ParseErrorBody(bodyOut, resp.StatusCode)
-	requestID := resp.Header.Get(constants.HeaderRequestID)
-	retryable := resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests
-	var retryAfter time.Duration
-	if retryable {
-		if d, ok := httpx.ParseRetryAfter(resp.Header.Get(constants.HeaderRetryAfter)); ok {
-			retryAfter = d
-		}
-	}
-	return nil, retryAfter, retryable, &Error{
+	apiErr := &Error{
 		Code:       code,
 		StatusCode: resp.StatusCode,
 		Message:    message,
-		RequestID:  requestID,
+		RequestID:  resp.Header.Get(constants.HeaderRequestID),
 	}
+	// One rule for the retry loop and for IsRetryable: 5xx and 429 are
+	// retried, except the codes waiting cannot fix (quota, storage access).
+	// Only Retry-After is read; Retry-After-Ms is ignored.
+	retryable := apiErr.IsRetryable()
+	var after retryAfter
+	if retryable {
+		after.delay, after.ok = httpx.ParseRetryAfter(resp.Header.Get(constants.HeaderRetryAfter))
+	}
+	return nil, after, retryable, apiErr
+}
+
+// bodyReadError maps a failure reading or decoding a 2xx API body:
+// ErrCodeAborted when the caller canceled ctx meanwhile, else
+// ErrCodeInternalError with the answer's status. Cause wraps err.
+func bodyReadError(ctx context.Context, status int, what string, err error) *Error {
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return mapContextError(ctx.Err())
+	}
+	return &Error{Code: ErrCodeInternalError, StatusCode: status, Message: what + err.Error(), Cause: err}
+}
+
+// timeoutMessage is the timeout error's message: the attempt's timeout in
+// whole milliseconds.
+func timeoutMessage(timeout time.Duration) string {
+	return fmt.Sprintf("Request timed out after %dms", timeout.Milliseconds())
 }
 
 // defaultTransport returns the *http.Transport used by NewClient when the
@@ -332,7 +363,7 @@ func (c *cancelOnClose) Close() error {
 // mapContextError turns a context error into an *Error with the right Code.
 func mapContextError(err error) *Error {
 	if errors.Is(err, context.Canceled) {
-		return &Error{Code: ErrCodeAborted, Message: "request was aborted", Cause: err}
+		return &Error{Code: ErrCodeAborted, Message: "Request was aborted", Cause: err}
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return &Error{Code: ErrCodeTimeout, Message: "request deadline exceeded", Cause: err}
@@ -343,17 +374,27 @@ func mapContextError(err error) *Error {
 // sleepCtx blocks for d, returning an *Error with Code == ErrCodeAborted (or
 // ErrCodeTimeout) if the context is canceled or expires before the sleep
 // completes.
+//
+// The wait is never shorter than d: should the timer fire before d has
+// passed on the monotonic clock, it is re-armed for the rest.
 func sleepCtx(ctx context.Context, d time.Duration) *Error {
 	if d <= 0 {
 		return nil
 	}
+	end := time.Now().Add(d) // carries a monotonic clock reading
 	timer := time.NewTimer(d)
 	defer timer.Stop()
-	select {
-	case <-timer.C:
-		return nil
-	case <-ctx.Done():
-		return mapContextError(ctx.Err())
+	for {
+		select {
+		case <-timer.C:
+			left := time.Until(end)
+			if left <= 0 {
+				return nil
+			}
+			timer.Reset(left)
+		case <-ctx.Done():
+			return mapContextError(ctx.Err())
+		}
 	}
 }
 

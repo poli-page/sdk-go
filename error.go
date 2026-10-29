@@ -117,13 +117,15 @@ func (e *Error) IsNetworkError() bool {
 	return e.Code == ErrCodeNetworkError || e.Code == ErrCodeTimeout
 }
 
-// IsRetryable reports whether the SDK considers this error retryable
-// (5xx, 429, network failure, timeout). Caller-aborted requests are never
-// retryable. The SDK already retries internally up to the configured limit;
-// this predicate is useful when an outer queue or scheduler decides whether
-// to re-enqueue the job.
+// IsRetryable reports whether the SDK considers this error retryable: a
+// network failure, a timeout, a 5xx or a 429, except QUOTA_EXCEEDED,
+// OVERAGE_CAP_EXCEEDED and STORAGE_ACCESS_DENIED, which last until the
+// monthly reset or until the bucket access is restored. Caller-aborted
+// requests are never retryable. The SDK already retries internally up to
+// the configured limit; this predicate is useful when an outer queue or
+// scheduler decides whether to re-enqueue the job.
 func (e *Error) IsRetryable() bool {
-	if e.Code == ErrCodeAborted {
+	if e.Code == ErrCodeAborted || isNonRetryableCode(e.Code) {
 		return false
 	}
 	if e.IsNetworkError() {
@@ -133,6 +135,16 @@ func (e *Error) IsRetryable() bool {
 		return true
 	}
 	return e.StatusCode == 429
+}
+
+// isNonRetryableCode reports the codes that are never retried although
+// their status is (a 429 or a 5xx): waiting and trying again cannot help.
+func isNonRetryableCode(code string) bool {
+	switch code {
+	case ErrCodeQuotaExceeded, ErrCodeOverageCapExceeded, ErrCodeStorageAccessDenied:
+		return true
+	}
+	return false
 }
 
 // SDK-internal error codes. These do not appear in API responses; the SDK
@@ -145,7 +157,8 @@ const (
 	ErrCodeNetworkError = "network_error"
 	// ErrCodeTimeout marks a per-request deadline being exceeded.
 	ErrCodeTimeout = "timeout"
-	// ErrCodeAborted marks caller-initiated cancellation. Never retryable.
+	// ErrCodeAborted marks caller-initiated cancellation (a canceled
+	// context.Context). Never retryable.
 	ErrCodeAborted = "aborted"
 	// ErrCodeUnknownError is the fallback code when an error-body JSON has
 	// no recognised fields.

@@ -184,12 +184,20 @@ func TestError_isRetryable(t *testing.T) {
 		{Code: "INTERNAL_ERROR", StatusCode: 500},
 		{Code: "INTERNAL_ERROR", StatusCode: 502},
 		{Code: "rate_limited", StatusCode: 429},
+		{Code: ErrCodeRateLimitExceeded, StatusCode: 429},
+		{Code: ErrCodeDownloadFailed, StatusCode: 503},
 		{Code: ErrCodeNetworkError},
 		{Code: ErrCodeTimeout},
 	}
 	notRetryable := []*Error{
 		{Code: ErrCodeValidationError, StatusCode: 400},
 		{Code: ErrCodeAborted},
+		// Waiting cannot fix these, whatever their status.
+		{Code: ErrCodeQuotaExceeded, StatusCode: 429},
+		{Code: ErrCodeOverageCapExceeded, StatusCode: 429},
+		{Code: ErrCodeStorageAccessDenied, StatusCode: 502},
+		// A download that got no answer.
+		{Code: ErrCodeDownloadFailed},
 	}
 	for _, e := range retryable {
 		if !e.IsRetryable() {
