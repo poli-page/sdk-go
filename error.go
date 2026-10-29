@@ -1,6 +1,7 @@
 package polipage
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 )
@@ -43,13 +44,32 @@ func (e *Error) Unwrap() error { return e.Cause }
 
 // Payload is the canonical wire shape for framework integrations:
 // {code, message, status, requestId}. Status is the API HTTP status for
-// status-bearing failures, 503 for network failures, 504 for timeouts,
-// omitted otherwise.
+// status-bearing failures, 503 for network failures, 504 for timeouts, and
+// 0 otherwise. In JSON, a zero Status and an empty RequestID are null.
 type Payload struct {
 	Code      string `json:"code"`
 	Message   string `json:"message"`
-	Status    int    `json:"status,omitempty"`
-	RequestID string `json:"requestId,omitempty"`
+	Status    int    `json:"status"`
+	RequestID string `json:"requestId"`
+}
+
+// MarshalJSON writes Status and RequestID as null when they are unknown
+// (zero and empty), as the SDK specification's toPayload() does.
+func (p Payload) MarshalJSON() ([]byte, error) {
+	var status *int
+	if p.Status != 0 {
+		status = &p.Status
+	}
+	var requestID *string
+	if p.RequestID != "" {
+		requestID = &p.RequestID
+	}
+	return json.Marshal(struct {
+		Code      string  `json:"code"`
+		Message   string  `json:"message"`
+		Status    *int    `json:"status"`
+		RequestID *string `json:"requestId"`
+	}{p.Code, p.Message, status, requestID})
 }
 
 // ToPayload returns the canonical wire payload for framework integrations.
