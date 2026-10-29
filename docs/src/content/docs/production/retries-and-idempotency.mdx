@@ -9,6 +9,7 @@ The Poli Page Go SDK retries transient failures automatically. Every POST carrie
 
 - `network_error`, `timeout`, 5xx responses (such as `503 PUBLISH_IN_PROGRESS`) and 429 responses (such as `RATE_LIMIT_EXCEEDED`) are retried.
 - `QUOTA_EXCEEDED` and `OVERAGE_CAP_EXCEEDED` (429) and `STORAGE_ACCESS_DENIED` (502) are **not** retried: they last until the monthly reset or until the bucket access is restored, so the SDK returns them at once and `IsRetryable()` is `false`.
+- `DOWNLOAD_FAILED` is never retried and `IsRetryable()` is `false` for it, whatever the storage status.
 - Up to `option.WithMaxRetries(n)` retries (default 2 — three total attempts); after the last one, the last error is returned.
 - Exponential backoff: before retry `n` (1-based) the SDK waits `RetryDelay × 2^(n−1) × j`, with `j` a random factor in `[0.5, 1.5)` (`option.WithRetryDelay(d)`, default `500ms`).
 - Honors the `Retry-After` response header when present (integer seconds or an HTTP-date), clamped to 0–30 s, without jitter. `Retry-After-Ms` is ignored. Any other `Retry-After` value falls back to the backoff.
