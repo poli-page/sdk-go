@@ -115,13 +115,28 @@ fi
 "$(go env GOPATH)/bin/govulncheck" ./... || govulncheck ./...
 ok "no known vulns"
 
-step "go test -race -count=1 ./..."
-go test -race -count=1 ./...
-ok "all unit tests pass"
+step "go test -race -count=1 ./... (unit and API contract tests)"
+# contract_test.go runs the API contract cases. Use the contract version CI
+# pins, unless POLI_CONTRACT already names a contract.json.
+contract_sha=$(sed -n 's|.*uses: poli-page/api-contract@\([0-9a-f]\{40\}\).*|\1|p' .github/workflows/ci.yml | head -n 1)
+[[ -n "$contract_sha" ]] || fail "no poli-page/api-contract pin found in .github/workflows/ci.yml"
+if [[ -z "${POLI_CONTRACT:-}" ]]; then
+  POLI_CONTRACT="$(mktemp -d)/contract.json"
+  curl -fsSL "https://raw.githubusercontent.com/poli-page/api-contract/$contract_sha/contract.json" -o "$POLI_CONTRACT" \
+    || fail "could not download the API contract $contract_sha; set POLI_CONTRACT to its contract.json"
+  ok "API contract: the version CI pins ($contract_sha), downloaded to $POLI_CONTRACT"
+else
+  warn "API contract: POLI_CONTRACT=$POLI_CONTRACT overrides the version CI pins ($contract_sha)"
+fi
+[[ -s "$POLI_CONTRACT" ]] || fail "API contract file missing or empty: $POLI_CONTRACT"
+export POLI_CONTRACT
+# CI=true: the contract test fails instead of skipping without POLI_CONTRACT.
+CI=true go test -race -count=1 ./...
+ok "all unit and contract tests pass"
 
 if [[ -n "${POLI_PAGE_API_KEY:-}" ]]; then
   step "go test -tags=integration (POLI_PAGE_API_KEY set)"
-  go test -tags=integration -race -count=1 -timeout=300s ./...
+  CI=true go test -tags=integration -race -count=1 -timeout=300s ./...
   ok "integration tests pass"
 else
   warn "POLI_PAGE_API_KEY not set — skipping integration tests"

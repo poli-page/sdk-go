@@ -7,6 +7,100 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Conformance with the Poli Page API contract v1.1.0
+([poli-page/api-contract](https://github.com/poli-page/api-contract)). See
+[MIGRATION.md](MIGRATION.md#from-0100-to-the-next-release-unreleased).
+
+### Changed
+
+- **Breaking:** `QUOTA_EXCEEDED` and `OVERAGE_CAP_EXCEEDED` (429) and
+  `STORAGE_ACCESS_DENIED` (502) are no longer retried, even with a
+  `Retry-After` header, and `(*Error).IsRetryable()` now returns `false` for
+  them (it returned `true` for any 429 or 5xx). They last until the monthly
+  reset or until the bucket access is restored, so the SDK used to wait up to
+  30 s per retry for nothing. `RATE_LIMIT_EXCEEDED` and every other 429 and
+  5xx are still retried. Code that requeues on `IsRetryable()` stops
+  requeueing these three.
+- **Breaking:** `Retry-After: 0` retries at once. It used to be treated as no
+  header, so the backoff applied.
+- `Retry-After` is read as integer seconds or an HTTP-date only. Any other
+  value (`1.5`, `-1`, `soon`) falls back to the backoff instead of being
+  parsed as a float; an integer too large for any integer type clamps to the
+  30 s cap (it could wrap to a zero or negative delay). `Retry-After-Ms` is
+  ignored, as before.
+- SDK error messages are the exact texts of the SDK specification:
+  - `invalid_options` for a missing or empty API key: `apiKey is required`
+    (was `option.WithAPIKey is required`).
+  - `network_error`: `Network request failed` (was the `net/http` error
+    text); the `net/http` error is still the `Cause`.
+  - `timeout`: `Request timed out after <ms>ms`, the attempt's timeout in
+    whole milliseconds (was `request timed out after <duration>`, e.g. `1m0s`).
+  - `aborted`: `Request was aborted` (was `request was aborted`).
+  - `DOWNLOAD_FAILED`: `Failed to download PDF: HTTP <status>` (was
+    `failed to download PDF: <status> <status text>`), and
+    `Failed to download PDF: network error` when the download gets no answer
+    (was the `net/http` error text, now the `Cause`).
+  - A non-JSON error body: `HTTP <status>` (was
+    `HTTP <status>: response body was not valid JSON`); the code is still
+    `INTERNAL_ERROR` with the real status.
+  - `PROJECT_REQUIRED_FOR_DOCUMENT` raised before any request:
+    `project is required` (was
+    `Render.Document/PDF/PDFStream require RenderInput.Project`).
+- Canceling the context during the PDF download of `Render.PDF`,
+  `Render.PDFStream` or `DownloadPDF` returns `aborted` instead of
+  `DOWNLOAD_FAILED`, whether it happens before the storage answers or while
+  the body is read.
+- A 2xx API answer is read in full inside its attempt. A body cut off
+  mid-read is `network_error` (`Network request failed`, the read error as
+  `Cause`), and a body that outlasts the attempt's timeout is `timeout`. Both
+  were `INTERNAL_ERROR` with status 200, which is not retryable; now they are
+  retried like any network failure or timeout (a retried render can then
+  store a second document, as with any retry after the request reached the
+  API). Canceling the context while the answer is read returns `aborted`.
+  `OnResponse` now fires once the body is read.
+- **Breaking:** `json.Marshal` of a `Payload` (from `(*Error).ToPayload()`)
+  writes `"status": null` and `"requestId": null` when they are unknown, as
+  the SDK specification says; both keys used to be omitted. The Go fields
+  keep their types (`Status int`, `RequestID string`, zero when unknown).
+  JSON consumers that test for a missing key must test for `null`.
+- An error body whose `code`, `error`, `detail`, `title` or `message` is not
+  a string ignores that field instead of being read as a non-JSON body; JSON
+  that is not an object gives `unknown_error` and `HTTP <status>`.
+
+### Fixed
+
+- A failure while the PDF body is read no longer escapes as a raw `net/http`
+  error: `Render.PDF`, `DownloadPDF` and reads of the `Render.PDFStream`
+  stream return an `*Error`, `aborted` when the context is canceled mid-body
+  and `DOWNLOAD_FAILED` with `Failed to download PDF: network error` when the
+  connection drops mid-body. The read error is the `Cause`, so `errors.Is`
+  (for example with `io.ErrUnexpectedEOF` or `context.Canceled`) and
+  `errors.Unwrap` reach it.
+- A POST (`Render.*`, `Documents.Thumbnails`) is never resent behind the
+  SDK's back. `net/http`'s Transport resent it once when a reused keep-alive
+  connection died before any answer, because it carries `Idempotency-Key`:
+  `OnRequest` did not see that attempt, `WithMaxRetries` did not count it, and
+  as the API does not deduplicate, a render could be stored twice. The failure
+  now surfaces as `network_error` and goes through the SDK's own retry.
+  The transport may still resend a GET once on a stale keep-alive connection,
+  which stores nothing.
+  The cost: over HTTP/2, `net/http` also used to resend a POST that the server
+  refused before processing it (a refused stream or a `GOAWAY`). That case now
+  comes back as `network_error` too and goes through the SDK's own retry, one
+  backoff later; with `WithMaxRetries(0)` it reaches the caller. Such an
+  attempt was never processed, so retrying it cannot duplicate a render.
+- Docs: the retries page and the README no longer claim the API
+  deduplicates on `Idempotency-Key`. It does not: the key is stable across the
+  retries of one call, and a render retried after a late 5xx, a `timeout` or a
+  `network_error` can store a second document.
+
+### Added
+
+- `contract_test.go` runs every SDK case of the API contract against a local
+  mock server; CI pins the contract by commit (`poli-page/api-contract`
+  action) and Dependabot proposes each new version. Run it locally with
+  `POLI_CONTRACT=<path to contract.json> go test ./...`.
+
 ## [0.10.0] - 2026-10-27
 
 Environments replace versions: an API key (`pp_{env}_…`) carries its

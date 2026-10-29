@@ -3,6 +3,7 @@ package polipage
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -31,7 +32,7 @@ type Render struct {
 // (e.g. an invoice number) and wants to override the auto-generated UUID4.
 func (r *Render) Document(ctx context.Context, in RenderInput, opts ...option.RequestOption) (*DocumentDescriptor, error) {
 	if in.Project == "" {
-		return nil, &Error{Code: ErrCodeProjectRequiredForDocument, Message: "Render.Document/PDF/PDFStream require RenderInput.Project"}
+		return nil, &Error{Code: ErrCodeProjectRequiredForDocument, Message: "project is required"}
 	}
 	if err := validateMetadata(in.Metadata); err != nil {
 		return nil, err
@@ -50,12 +51,7 @@ func (r *Render) Document(ctx context.Context, in RenderInput, opts ...option.Re
 	var doc DocumentDescriptor
 	if err := json.NewDecoder(resp.Body).Decode(&doc); err != nil {
 		_, _ = io.Copy(io.Discard, resp.Body)
-		return nil, &Error{
-			Code:       ErrCodeInternalError,
-			StatusCode: resp.StatusCode,
-			Message:    "failed to decode response body: " + err.Error(),
-			Cause:      err,
-		}
+		return nil, bodyReadError(resp.StatusCode, "failed to decode response body: ", err)
 	}
 	if doc.Metadata == nil {
 		doc.Metadata = make(RenderMetadata)
@@ -91,8 +87,12 @@ func (r *Render) PDFStream(ctx context.Context, in RenderInput, opts ...option.R
 
 // DownloadPDF fetches the PDF bytes from PresignedPDFURL. The URL has a
 // ~15-minute TTL — when it expires, call Documents.Get(id) to refresh and
-// retry. Returns *Error with Code == ErrCodeDownloadFailed on non-2xx or
-// network failure.
+// retry.
+//
+// A non-2xx answer returns *Error with Code == ErrCodeDownloadFailed and the
+// storage status; a network failure, before the answer or while the body is
+// read, returns ErrCodeDownloadFailed without a status. Canceling ctx returns
+// ErrCodeAborted. The underlying error is wrapped in Cause.
 //
 // The request is unauthenticated and is not subject to the SDK's retry
 // policy: presigned-URL fetches go directly to S3 (or equivalent).
@@ -112,6 +112,12 @@ func (d *DocumentDescriptor) DownloadPDF(ctx context.Context, opts ...option.Dow
 	return io.ReadAll(body)
 }
 
+// Download error messages: the SDK specification's exact texts.
+const (
+	downloadStatusMessage  = "Failed to download PDF: HTTP %d"
+	downloadNetworkMessage = "Failed to download PDF: network error"
+)
+
 // downloadStream performs a plain unauthenticated GET against a presigned
 // URL and returns the response body for streaming. Shared by
 // Render.PDFStream and DocumentDescriptor.DownloadPDF.
@@ -119,68 +125,75 @@ func (d *DocumentDescriptor) DownloadPDF(ctx context.Context, opts ...option.Dow
 // The returned body uses the SDK's *http.Client (for TLS, proxy, etc.)
 // but the request itself carries no SDK headers and is NOT subject to
 // the retry loop. When timeout > 0 and the caller's ctx has no deadline,
-// a per-call context.WithTimeout is applied; cancel ownership transfers to
-// the returned body via cancelOnClose so the context is released when the
-// caller closes the body.
+// a per-call context.WithTimeout is applied; the returned body releases it
+// on Close. A read error of the returned body is an *Error too (see
+// downloadFailure).
 func (c *Client) downloadStream(ctx context.Context, url string, timeout time.Duration) (io.ReadCloser, error) {
+	cancel := context.CancelFunc(func() {})
 	if timeout > 0 {
 		if _, hasDeadline := ctx.Deadline(); !hasDeadline {
-			var cancel context.CancelFunc
 			ctx, cancel = context.WithTimeout(ctx, timeout)
-			// cancel is transferred to the returned body's cancelOnClose so
-			// it is released when the caller closes the body. If the HTTP
-			// call errors out below, the deferred call cancels the context.
-			defer func() {
-				if cancel != nil {
-					cancel()
-				}
-			}()
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-			if err != nil {
-				return nil, &Error{Code: ErrCodeDownloadFailed, Message: err.Error(), Cause: err}
-			}
-			resp, err := c.cfg.HTTPClient.Do(req)
-			if err != nil {
-				return nil, &Error{Code: ErrCodeDownloadFailed, Message: err.Error(), Cause: err}
-			}
-			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-				_, _ = io.Copy(io.Discard, resp.Body)
-				_ = resp.Body.Close()
-				return nil, &Error{
-					Code:       ErrCodeDownloadFailed,
-					StatusCode: resp.StatusCode,
-					Message:    fmt.Sprintf("failed to download PDF: %d %s", resp.StatusCode, http.StatusText(resp.StatusCode)),
-				}
-			}
-			if resp.Body == nil {
-				return nil, &Error{Code: ErrCodeInternalError, StatusCode: resp.StatusCode, Message: "presigned-URL response has no body"}
-			}
-			wrapped := &cancelOnClose{ReadCloser: resp.Body, cancel: cancel}
-			cancel = nil // transfer ownership: deferred call above no-ops now.
-			return wrapped, nil
 		}
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, &Error{Code: ErrCodeDownloadFailed, Message: err.Error(), Cause: err}
+		cancel()
+		return nil, &Error{Code: ErrCodeDownloadFailed, Message: downloadNetworkMessage, Cause: err}
 	}
 	resp, err := c.cfg.HTTPClient.Do(req)
 	if err != nil {
-		return nil, &Error{Code: ErrCodeDownloadFailed, Message: err.Error(), Cause: err}
+		cancel()
+		return nil, downloadFailure(ctx, err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		_, _ = io.Copy(io.Discard, resp.Body)
 		_ = resp.Body.Close()
+		cancel()
 		return nil, &Error{
 			Code:       ErrCodeDownloadFailed,
 			StatusCode: resp.StatusCode,
-			Message:    fmt.Sprintf("failed to download PDF: %d %s", resp.StatusCode, http.StatusText(resp.StatusCode)),
+			Message:    fmt.Sprintf(downloadStatusMessage, resp.StatusCode),
 		}
 	}
-	if resp.Body == nil {
-		return nil, &Error{Code: ErrCodeInternalError, StatusCode: resp.StatusCode, Message: "presigned-URL response has no body"}
+	return &downloadBody{body: resp.Body, ctx: ctx, cancel: cancel}, nil
+}
+
+// downloadBody is a presigned download's body whose read errors are SDK
+// errors, so a cancellation or a dropped connection mid-body never escapes
+// as a raw net/http error. Close releases the download's context.
+type downloadBody struct {
+	body   io.ReadCloser
+	ctx    context.Context
+	cancel context.CancelFunc
+}
+
+func (b *downloadBody) Read(p []byte) (int, error) {
+	n, err := b.body.Read(p)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return n, downloadFailure(b.ctx, err)
 	}
-	return resp.Body, nil
+	return n, err
+}
+
+func (b *downloadBody) Close() error {
+	err := b.body.Close()
+	b.cancel()
+	return err
+}
+
+// downloadFailure is the error of a download that failed without an HTTP
+// status, before the answer or while its body is read: ErrCodeAborted when
+// ctx was canceled, else ErrCodeDownloadFailed without a status. Cause
+// wraps err, and context.Canceled for an abort.
+func downloadFailure(ctx context.Context, err error) *Error {
+	if errors.Is(ctx.Err(), context.Canceled) {
+		cause := err
+		if !errors.Is(err, context.Canceled) {
+			cause = fmt.Errorf("%w: %w", context.Canceled, err)
+		}
+		return &Error{Code: ErrCodeAborted, Message: "Request was aborted", Cause: cause}
+	}
+	return &Error{Code: ErrCodeDownloadFailed, Message: downloadNetworkMessage, Cause: err}
 }
 
 // resolvePerCall folds the variadic per-call options into a Config and

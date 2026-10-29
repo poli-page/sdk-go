@@ -34,14 +34,16 @@ type RequestEvent struct {
 	Attempt int
 }
 
-// ResponseEvent fires once after a 2xx response. Non-2xx outcomes surface
+// ResponseEvent fires once per 2xx attempt, after its body has been read in
+// full; never for a 2xx whose body read fails. Non-2xx outcomes surface
 // through OnRetry (retryable) or OnError (terminal) instead.
 type ResponseEvent struct {
 	// Status is the HTTP status code (always in [200, 300)).
 	Status int
 	// RequestID is the x-request-id header value when present; empty otherwise.
 	RequestID string
-	// DurationMs is the wall-clock time of the HTTP round trip in milliseconds.
+	// DurationMs is the time in milliseconds from just before the request was
+	// sent until the answer's body was read in full.
 	DurationMs int64
 }
 

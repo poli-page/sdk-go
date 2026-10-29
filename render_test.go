@@ -419,10 +419,10 @@ func TestRender_Document_onErrorHookFiresOnceOnTerminalFailure(t *testing.T) {
 
 func TestRender_Document_largeResponseBodyDoesNotRaceAttemptTimeout(t *testing.T) {
 	t.Parallel()
-	// Regression: when the response body is large enough that decode needs
-	// multiple reads, the per-attempt timeout context must remain live until
-	// the caller closes the body. Cancelling in sendOnce() killed body reads
-	// for large responses on the real API.
+	// Regression: when the response body is large enough to need multiple
+	// reads, the per-attempt timeout context must stay live until the whole
+	// body is read. Cancelling it too early killed body reads for large
+	// responses on the real API.
 	big := strings.Repeat("chunk", 120_000) // ~600 KB
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

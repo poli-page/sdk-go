@@ -129,11 +129,15 @@ func WithOnRequest(fn func(RequestEvent)) RequestOption {
 	}
 }
 
-// WithOnResponse registers a hook that fires once after each successful
-// (2xx) HTTP response with the status, x-request-id header value (empty
-// when absent), and the wall-clock round-trip duration in milliseconds.
-// Non-2xx outcomes surface via OnRetry (retryable) or OnError (terminal)
-// instead. Panics inside the hook are recovered.
+// WithOnResponse registers a hook that fires once per successful (2xx)
+// attempt, after the answer's body has been read in full, with the status,
+// the x-request-id header value (empty when absent), and the duration in
+// milliseconds from just before the request was sent until the body was
+// read. It never fires for a 2xx whose body read fails (a dropped
+// connection, a timeout or a cancellation mid-body): that attempt surfaces
+// via OnRetry or OnError like any failure. Non-2xx outcomes surface via
+// OnRetry (retryable) or OnError (terminal) instead. Panics inside the hook
+// are recovered.
 func WithOnResponse(fn func(ResponseEvent)) RequestOption {
 	return func(c *clientconfig.Config) error {
 		c.OnResponse = fn

@@ -32,8 +32,15 @@ jobs:
         with:
           go-version: '1.26'
 
+      # `go test ./...` below runs contract_test.go too.
+      - name: API contract
+        id: contract
+        uses: poli-page/api-contract@98849e50fb59cd3037bf59c8cdf885c341bd536f # v1.1.0
+
       - name: Run integration tests
         env:
+          CI: "true"
+          POLI_CONTRACT: ${{ steps.contract.outputs.path }}
           POLI_PAGE_API_KEY: ${{ secrets.POLI_PAGE_API_KEY }}
           # Optional — when unset, the SDK uses its default base URL.
           POLI_PAGE_TEST_BASE_URL: ${{ secrets.POLI_PAGE_TEST_BASE_URL }}

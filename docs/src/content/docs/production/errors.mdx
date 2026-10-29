@@ -25,12 +25,12 @@ if errors.As(err, &perr) {
 These originate inside the SDK before any HTTP call (or in response to a network-layer failure). They are lowercase.
 
 <ErrorTable errors={[
-  { code: 'invalid_options', when: 'The options passed to NewClient (or a per-call WithX option) are invalid.', recovery: 'Fix the call site. Surfaced on the first method call.' },
-  { code: 'network_error', when: 'TCP/TLS-layer failure reaching the API.', recovery: 'Automatically retried up to WithMaxRetries times.' },
-  { code: 'timeout', when: 'The request did not complete within the configured WithTimeout.', recovery: 'Automatically retried up to WithMaxRetries times. Raise WithTimeout if it keeps tripping.' },
-  { code: 'aborted', when: 'The caller-supplied context was cancelled.', recovery: 'Not retryable. Surface to the caller.' },
+  { code: 'invalid_options', when: 'The options passed to NewClient (or a per-call WithX option) are invalid. A missing or empty API key gives the message `apiKey is required`.', recovery: 'Fix the call site. Surfaced on the first method call.' },
+  { code: 'network_error', when: 'TCP/TLS-layer failure reaching the API. The message is `Network request failed`; the net/http error is the `Cause`.', recovery: 'Automatically retried up to WithMaxRetries times.' },
+  { code: 'timeout', when: 'The request did not complete within the configured WithTimeout. The message is `Request timed out after <ms>ms`.', recovery: 'Automatically retried up to WithMaxRetries times. Raise WithTimeout if it keeps tripping.' },
+  { code: 'aborted', when: 'The caller-supplied context was cancelled, during a request, a retry wait or the PDF download. The message is `Request was aborted`.', recovery: 'Not retryable. Surface to the caller.' },
   { code: 'io_failed', when: 'A local filesystem write failed inside RenderToFile.', recovery: 'Fix the path / permissions. Unwrap to inspect the os error.' },
-  { code: 'DOWNLOAD_FAILED', when: 'Fetching a presigned PDF URL failed (TTL expired, network error).', recovery: 'Call Documents.Get to refresh the presigned URL and retry.' },
+  { code: 'DOWNLOAD_FAILED', when: 'Fetching a presigned PDF URL failed: `Failed to download PDF: HTTP <status>` with the storage `StatusCode` (an expired URL gets 403), or `Failed to download PDF: network error` without one, also when the connection drops while the body is read.', recovery: 'Call Documents.Get to refresh the presigned URL and retry.' },
 ]} />
 
 ## API codes
@@ -47,11 +47,13 @@ Returned by the Poli Page API. Uppercase, snake-case. The SDK forwards the code 
   { code: 'DOCUMENT_GONE', when: 'The document was deleted or has expired (sandbox documents expire after 30 days).', recovery: 'Render it again.' },
   { code: 'VALIDATION_ERROR', when: 'The request failed validation.', recovery: 'Read Message for the failing field.' },
   { code: 'MISSING_DATA', when: 'The request body lacks the required Data field.', recovery: 'Pass a non-nil Data on every render call (an empty map is fine).' },
-  { code: 'QUOTA_EXCEEDED', when: 'The monthly quota or a per-key limit is reached (429).', recovery: 'Retried like any 429; raise the plan for more throughput.' },
+  { code: 'QUOTA_EXCEEDED', when: 'The organization\'s monthly quota is exhausted (429).', recovery: 'Not retried: it lasts until the monthly reset. Upgrade the plan for more renders.' },
+  { code: 'OVERAGE_CAP_EXCEEDED', when: 'The organization reached its overage cap (429).', recovery: 'Not retried: it lasts until the monthly reset. Raise the cap in the dashboard.' },
+  { code: 'STORAGE_ACCESS_DENIED', when: 'The organization\'s own storage bucket refuses access (502).', recovery: 'Not retried: restore the bucket role, then call again.' },
   { code: 'RATE_LIMIT_EXCEEDED', when: 'Too many requests (429).', recovery: 'Retried like any 429, honoring Retry-After.' },
   { code: 'ORGANIZATION_PAYMENT_GRACE', when: 'The organization\'s billing is past due.', recovery: 'Update the payment method in the dashboard.' },
   { code: 'PUBLISH_IN_PROGRESS', when: 'A publish holds the project in the key\'s environment (503).', recovery: 'Retried like any 5xx, honoring Retry-After.' },
-  { code: 'INTERNAL_ERROR', when: 'The API returned 5xx.', recovery: 'Automatically retried; contact support if it persists.' },
+  { code: 'INTERNAL_ERROR', when: 'The API returned 5xx. Also the code of an error answer whose body is not JSON (a gateway page), with its real status and the message `HTTP <status>`.', recovery: 'Automatically retried; contact support if it persists.' },
 ]} />
 
 The full list of API codes lives in [the reference](../../reference/errors/).
@@ -83,8 +85,9 @@ func main() {
 		var perr *polipage.Error
 		if errors.As(err, &perr) {
 			if perr.IsRateLimitError() {
-				// Any 429, after the SDK's built-in retries: queue the job for
-				// later, or report the failure as here.
+				// RATE_LIMIT_EXCEEDED after the SDK's built-in retries, or
+				// QUOTA_EXCEEDED / OVERAGE_CAP_EXCEEDED, which the SDK never
+				// retries: queue the job for later, or report it as here.
 				fmt.Fprintln(os.Stderr, "rate limited, try again later; request id:", perr.RequestID)
 				os.Exit(1)
 			}

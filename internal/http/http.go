@@ -30,22 +30,17 @@ func BuildURL(base, path string) string {
 	return base + path
 }
 
-// ComputeBackoff returns the delay before the next retry attempt.
-//
-// A positive retryAfter is returned verbatim (the server told us how long
-// to wait, no jitter). When retryAfter is zero — the time.Duration zero
-// value, treated as "no server override" — the result is
-// baseDelay × 2^(attempt-1) × jitterFactor where jitterFactor is uniform
-// in [0.5, 1.5). attempt is 1-based: 1 means the first retry.
+// ComputeBackoff returns the exponential-backoff delay before retry
+// attempt (1-based: 1 means the first retry), used when the failed answer
+// carried no usable Retry-After header:
+// baseDelay × 2^(attempt-1) × jitterFactor, jitterFactor uniform in
+// [0.5, 1.5).
 //
 // The jitter source is math/rand/v2's package-level Float64, which is
 // auto-seeded with crypto-grade entropy and cannot be re-seeded by other
 // code in the process — the property the Node SDK approximates via a
 // package-scoped *rand.Rand.
-func ComputeBackoff(attempt int, baseDelay, retryAfter time.Duration) time.Duration {
-	if retryAfter > 0 {
-		return retryAfter
-	}
+func ComputeBackoff(attempt int, baseDelay time.Duration) time.Duration {
 	exp := float64(baseDelay) * math.Pow(2, float64(attempt-1))
 	jitterFactor := 0.5 + rand.Float64() //nolint:gosec // G404: jitter is not security-sensitive; math/rand/v2 is correct here
 	return time.Duration(exp * jitterFactor)
@@ -53,25 +48,25 @@ func ComputeBackoff(attempt int, baseDelay, retryAfter time.Duration) time.Durat
 
 // ParseErrorBody parses a non-2xx response body into a (code, message) pair.
 //
-// The API speaks RFC 7807 ProblemDetails. Message preference: detail
-// (specific reason) → title (generic problem name) → message (legacy
-// non-7807 endpoints) → short canned "HTTP <status>". Code is verbatim
-// from the API (fallback "unknown_error"); we never invent a code from
-// the message. Bodies that aren't valid JSON objects surface as
-// "INTERNAL_ERROR".
+// Code is the body's code field, else its error field, else
+// "unknown_error"; it is copied verbatim and never inferred from the status
+// or the message. Message is detail, else title, else message, else
+// "HTTP <status>". Fields that are not strings are ignored. A body that is
+// not JSON (a gateway's HTML page, an empty body) gives "INTERNAL_ERROR"
+// and "HTTP <status>"; the caller keeps the real status.
 func ParseErrorBody(body []byte, status int) (code, message string) {
-	var parsed struct {
-		Code    string `json:"code"`
-		Detail  string `json:"detail"`
-		Title   string `json:"title"`
-		Message string `json:"message"`
-		Error   string `json:"error"`
-	}
+	fallback := fmt.Sprintf("HTTP %d", status)
+	var parsed any
 	if err := json.Unmarshal(body, &parsed); err != nil {
-		return "INTERNAL_ERROR", fmt.Sprintf("HTTP %d: response body was not valid JSON", status)
+		return "INTERNAL_ERROR", fallback
 	}
-	code = firstNonEmpty(parsed.Code, parsed.Error, "unknown_error")
-	message = firstNonEmpty(parsed.Detail, parsed.Title, parsed.Message, fmt.Sprintf("HTTP %d", status))
+	fields, _ := parsed.(map[string]any)
+	str := func(name string) string {
+		s, _ := fields[name].(string)
+		return s
+	}
+	code = firstNonEmpty(str("code"), str("error"), "unknown_error")
+	message = firstNonEmpty(str("detail"), str("title"), str("message"), fallback)
 	return code, message
 }
 
@@ -84,21 +79,37 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-// ParseRetryAfter interprets a Retry-After header value. It accepts an
-// integer number of seconds or an RFC 7231 HTTP-date, returns the delay
-// clamped to [0, RetryAfterCap], and signals false when the value is empty
-// or unparseable so the caller can fall back to computed backoff.
+// ParseRetryAfter interprets a Retry-After header value: an integer
+// number of seconds or an HTTP-date. It returns the delay clamped to
+// [0, RetryAfterCap] (a date in the past gives 0, an integer too large for
+// any integer type gives the cap), and false when the value is empty or in
+// any other form ("1.5", "-1", "soon"), so the caller falls back to the
+// computed backoff.
 func ParseRetryAfter(headerValue string) (time.Duration, bool) {
 	if headerValue == "" {
 		return 0, false
 	}
-	if secs, err := strconv.ParseFloat(headerValue, 64); err == nil {
-		return clampDuration(time.Duration(secs * float64(time.Second))), true
+	if isDigits(headerValue) {
+		secs, err := strconv.ParseInt(headerValue, 10, 64)
+		if err != nil || secs > int64(constants.RetryAfterCap/time.Second) {
+			// Only overflow can fail on digits: far above the cap either way.
+			return constants.RetryAfterCap, true
+		}
+		return time.Duration(secs) * time.Second, true
 	}
 	if when, err := http.ParseTime(headerValue); err == nil {
 		return clampDuration(time.Until(when)), true
 	}
 	return 0, false
+}
+
+func isDigits(s string) bool {
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return s != ""
 }
 
 func clampDuration(d time.Duration) time.Duration {

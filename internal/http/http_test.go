@@ -151,9 +151,23 @@ func TestParseRetryAfter_capsLargeSeconds(t *testing.T) {
 	}
 }
 
+func TestParseRetryAfter_capsIntegersBeyondInt64(t *testing.T) {
+	t.Parallel()
+	// Overflows int64 (and time.Duration): clamps to the cap, never wraps to a
+	// negative or zero delay.
+	for _, in := range []string{"9223372036854775808", "99999999999999999999999999999999"} {
+		d, ok := ParseRetryAfter(in)
+		if !ok || d != 30*time.Second {
+			t.Errorf("ParseRetryAfter(%q) = (%v, %v), want (30s, true)", in, d, ok)
+		}
+	}
+}
+
 func TestParseRetryAfter_unparseableReturnsFalse(t *testing.T) {
 	t.Parallel()
-	for _, in := range []string{"abc", "not a date"} {
+	// Only integer seconds and HTTP-dates are read; anything else falls back
+	// to the computed backoff.
+	for _, in := range []string{"abc", "not a date", "1.5", "-1", "+5", "1e3", "NaN", "Inf", "5s", " "} {
 		d, ok := ParseRetryAfter(in)
 		if ok || d != 0 {
 			t.Errorf("ParseRetryAfter(%q) = (%v, %v), want (0, false)", in, d, ok)
@@ -229,8 +243,26 @@ func TestParseErrorBody_unknownErrorWhenNoRecognisedFields(t *testing.T) {
 func TestParseErrorBody_internalErrorOnInvalidJSON(t *testing.T) {
 	t.Parallel()
 	code, msg := ParseErrorBody([]byte("not json"), 502)
-	if code != "INTERNAL_ERROR" || msg != "HTTP 502: response body was not valid JSON" {
-		t.Fatalf("ParseErrorBody = (%q, %q), want (INTERNAL_ERROR, HTTP 502: response body was not valid JSON)", code, msg)
+	if code != "INTERNAL_ERROR" || msg != "HTTP 502" {
+		t.Fatalf("ParseErrorBody = (%q, %q), want (INTERNAL_ERROR, HTTP 502)", code, msg)
+	}
+}
+
+func TestParseErrorBody_ignoresFieldsThatAreNotStrings(t *testing.T) {
+	t.Parallel()
+	code, msg := ParseErrorBody([]byte(`{"code":42,"error":"QUOTA_EXCEEDED","detail":{"x":1},"title":"Quota"}`), 429)
+	if code != "QUOTA_EXCEEDED" || msg != "Quota" {
+		t.Fatalf("ParseErrorBody = (%q, %q), want (QUOTA_EXCEEDED, Quota)", code, msg)
+	}
+}
+
+func TestParseErrorBody_jsonThatIsNotAnObject(t *testing.T) {
+	t.Parallel()
+	for _, body := range []string{`[]`, `"oops"`, `null`, `7`} {
+		code, msg := ParseErrorBody([]byte(body), 500)
+		if code != "unknown_error" || msg != "HTTP 500" {
+			t.Errorf("ParseErrorBody(%s) = (%q, %q), want (unknown_error, HTTP 500)", body, code, msg)
+		}
 	}
 }
 
@@ -283,33 +315,6 @@ func TestParseErrorBody_internalErrorOnEmptyBody(t *testing.T) {
 	}
 }
 
-func TestComputeBackoff_returnsRetryAfterAsIsWhenPositive(t *testing.T) {
-	t.Parallel()
-	// When the server tells us how long to wait, honor it verbatim — no jitter
-	// even across many calls.
-	for i := 0; i < 20; i++ {
-		if got := ComputeBackoff(1, 500*time.Millisecond, 1*time.Second); got != 1*time.Second {
-			t.Fatalf("ComputeBackoff(retryAfter=1s) iter %d = %v, want 1s exactly", i, got)
-		}
-		if got := ComputeBackoff(3, 500*time.Millisecond, 250*time.Millisecond); got != 250*time.Millisecond {
-			t.Fatalf("ComputeBackoff(retryAfter=250ms) iter %d = %v, want 250ms exactly", i, got)
-		}
-	}
-}
-
-func TestComputeBackoff_zeroRetryAfterFallsThroughToBackoff(t *testing.T) {
-	t.Parallel()
-	// retryAfter=0 means "no server override" in Go (the time.Duration zero
-	// value); the helper falls through to computed exponential backoff with
-	// jitter. Documented divergence from Node, see sdk-go-plan.md §6.
-	for i := 0; i < 50; i++ {
-		got := ComputeBackoff(1, 1*time.Second, 0)
-		if got < 500*time.Millisecond || got >= 1500*time.Millisecond {
-			t.Fatalf("ComputeBackoff(1, 1s, 0) iter %d = %v, want in [500ms, 1500ms)", i, got)
-		}
-	}
-}
-
 func TestComputeBackoff_exponentialGrowthByAttempt(t *testing.T) {
 	t.Parallel()
 	// attempt=n → base * 2^(n-1) * jitter where jitter is in [0.5, 1.5).
@@ -322,9 +327,9 @@ func TestComputeBackoff_exponentialGrowthByAttempt(t *testing.T) {
 		lo := time.Duration(float64(exp) * 0.5)
 		hi := time.Duration(float64(exp) * 1.5)
 		for i := 0; i < samples; i++ {
-			got := ComputeBackoff(n, base, 0)
+			got := ComputeBackoff(n, base)
 			if got < lo || got >= hi {
-				t.Fatalf("ComputeBackoff(attempt=%d, base=%v, 0) iter %d = %v, want in [%v, %v)", n, base, i, got, lo, hi)
+				t.Fatalf("ComputeBackoff(attempt=%d, base=%v) iter %d = %v, want in [%v, %v)", n, base, i, got, lo, hi)
 			}
 		}
 	}
@@ -338,7 +343,7 @@ func TestComputeBackoff_jitterCoversFullBand(t *testing.T) {
 	base := 1 * time.Second
 	var minSeen, maxSeen time.Duration = 1 << 62, 0
 	for i := 0; i < samples; i++ {
-		d := ComputeBackoff(1, base, 0)
+		d := ComputeBackoff(1, base)
 		if d < minSeen {
 			minSeen = d
 		}
