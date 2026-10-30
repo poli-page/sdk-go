@@ -28,7 +28,7 @@ import (
 
 // User-facing default values for client construction. Internal SDK
 // values (header names, jitter bounds, path templates) live in
-// internal/constants instead, per sdk-go-plan.md §17.
+// internal/constants instead.
 const (
 	// DefaultBaseURL is the production Poli Page API base URL. Override via
 	// option.WithBaseURL to target another API host.
@@ -102,7 +102,7 @@ func (c *Client) userAgent() string {
 
 // transport is the internal seam each namespace uses to issue HTTP
 // requests. *Client is the production implementer; the interface stays
-// around as a documented future mock-point per sdk-go-plan.md §3.2.
+// around as a documented future mock-point.
 //
 // per carries per-call overrides resolved from variadic option.RequestOption
 // values (IdempotencyKey, Timeout, Headers). Fields left zero defer to the
@@ -364,7 +364,7 @@ func timeoutMessage(timeout time.Duration) string {
 // defaultTransport returns the *http.Transport used by NewClient when the
 // caller did not supply their own *http.Client. The values are tuned for
 // the SDK's typical workload (1 process talking to 1 API host on HTTP/1.1
-// + HTTP/2) per sdk-go-plan.md §5.2 — keep idle connections per host
+// + HTTP/2) — keep idle connections per host
 // generously open so successive render calls reuse a warm connection.
 //
 // Callers wanting custom transport (proxies, TLS pinning, recording) pass

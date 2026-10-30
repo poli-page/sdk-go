@@ -4,7 +4,7 @@
 // otherwise be re-typed at multiple call sites.
 //
 // User-facing defaults (DefaultBaseURL, DefaultMaxRetries, etc.) live at
-// the root polipage package per sdk-go-plan.md §17.
+// the root polipage package.
 package constants
 
 import (

@@ -1,4 +1,4 @@
-# golangci-lint v2 configuration. Mirrors sdk-go-plan.md §9.3.
+# golangci-lint v2 configuration.
 # Run locally: golangci-lint run ./...
 version: "2"
 
