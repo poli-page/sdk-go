@@ -94,8 +94,7 @@ func TestError_errorsIsViaSentinels(t *testing.T) {
 
 func TestError_errorsIsGroupsAuthCodes(t *testing.T) {
 	t.Parallel()
-	// ErrUnauthorized must match both MISSING_API_KEY and INVALID_API_KEY
-	// per sdk-go-plan.md §7.0.
+	// ErrUnauthorized must match both MISSING_API_KEY and INVALID_API_KEY.
 	for _, code := range []string{ErrCodeMissingAPIKey, ErrCodeInvalidAPIKey} {
 		e := &Error{Code: code, StatusCode: 401}
 		if !errors.Is(e, ErrUnauthorized) {
@@ -106,8 +105,7 @@ func TestError_errorsIsGroupsAuthCodes(t *testing.T) {
 
 func TestError_errorsIsGroupsRateLimitCodes(t *testing.T) {
 	t.Parallel()
-	// ErrRateLimit must match both QUOTA_EXCEEDED and OVERAGE_CAP_EXCEEDED
-	// per sdk-go-plan.md §7.0.
+	// ErrRateLimit must match both QUOTA_EXCEEDED and OVERAGE_CAP_EXCEEDED.
 	for _, code := range []string{ErrCodeQuotaExceeded, ErrCodeOverageCapExceeded} {
 		e := &Error{Code: code, StatusCode: 429}
 		if !errors.Is(e, ErrRateLimit) {

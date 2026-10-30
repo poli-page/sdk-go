@@ -3,7 +3,7 @@
 // build values that the orchestrator hands to net/http, or parse values
 // that the orchestrator already received.
 //
-// Mirrors src/internal/http.ts in the Node SDK (see sdk-go-plan.md §3.1).
+// Mirrors src/internal/http.ts in the Node SDK.
 package http
 
 import (
