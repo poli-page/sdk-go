@@ -4,4 +4,4 @@ package version
 
 // Version is the current SDK release. Bumped manually on each release per the
 // build plan (sdk-go-plan.md §12.5).
-const Version = "0.10.0"
+const Version = "0.11.0"

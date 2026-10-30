@@ -51,19 +51,11 @@ output/
 .env
 .env.local
 
-# Claude Code per-machine settings (allowed-commands, etc.)
-# Shared project config can still live in .claude/settings.json.
+# Local agent settings and private working notes: kept out of this repo.
 .claude/settings.local.json
-
-# Private agent guide — kept at repo root so Claude Code auto-loads it
-# on session start, but gitignored so it never enters a commit. The
-# content references internal platform-repo paths + team names that do
-# not belong on the public sdk-go repo.
 CLAUDE.md
 
-# Local SDK handoff docs from the platform repo (poli-page/poli-page).
-# These are derivative working copies — the canonical versions live in
-# docs/onboarding/micka/ over there. Keep them out of this public repo.
+# Local working copies of internal planning docs: kept out of this repo.
 sdk-engineering-guide.md
 sdk-go-plan.md
 sdk-roadmap.md
