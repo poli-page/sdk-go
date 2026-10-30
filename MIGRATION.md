@@ -5,12 +5,42 @@ This file documents breaking changes between releases of
 before 1.0 a breaking change bumps the minor version, from 1.0 on the
 major version, and every breaking change comes with an entry here.
 
-## From 0.10.0 to the next release (unreleased)
+## From 0.9.x to 0.11.0
+
+0.10.0 was never released for Go: 0.11.0 follows 0.9.0 and carries both groups
+of changes below.
+
+### Environments replace versions
+
+An API key now names its environment (`pp_{env}_…`), and a render uses
+the project's copy published in that environment. The API has dropped
+template versions, `POST /v1/render/preview` and inline-HTML rendering, so
+this release removes them from the SDK with no deprecation window.
+
+| 0.9.x | 0.11.0 |
+| --- | --- |
+| `polipage.ProjectModeInput{…, Version: polipage.Opt("1.0.0")}` | `polipage.RenderInput{…}`: publish the project to the key's environment instead of pinning a version |
+| `polipage.Opt` | removed (its only use was `Version`) |
+| `client.Render.Preview(ctx, polipage.InlineModeInput{…})`, `PreviewResult` | removed: try templates and raw HTML in the playground, https://play.poli.page. `client.Documents.Preview(ctx, id)` stays |
+| `RenderInput` (sealed interface) | `RenderInput` is now the struct formerly named `ProjectModeInput` |
+| `DocumentDescriptor.Version` | removed |
+| `DocumentDescriptor.Environment` of type `polipage.Environment`, `EnvironmentSandbox`, `EnvironmentLive` | a plain `string` with any environment name: compare with `"sandbox"`, `"live"`, … |
+| `pp_test_…` keys | `pp_sandbox_…` keys. Service keys use the same `pp_{env}_…` format (no more `pp_sa_…`) |
+| `ErrVersionNotFound`, `VERSION_NOT_FOUND`, `INVALID_VERSION_FORMAT`, `VERSION_REQUIRED`, `INVALID_VERSION_FOR_KEY_ENV` | removed: a render fails with `PROJECT_NOT_FOUND`, `PROJECT_NOT_IN_ENVIRONMENT` or `TEMPLATE_NOT_FOUND` |
+| `ErrGone`, `ErrCodeGone` (`GONE`) | `ErrDocumentGone`, `ErrCodeDocumentGone` (`DOCUMENT_GONE`) |
+| `ErrPaymentRequired`, `ErrCodePaymentRequired` (`PAYMENT_REQUIRED`) | removed: past-due billing is reported as `ORGANIZATION_PAYMENT_GRACE` |
+| `MISSING_PROJECT_OR_TEMPLATE` | removed |
+| `ThumbnailOptions.Width` always sent | every field optional: a zero value is not sent (API defaults: 400 px, `jpeg`) |
+
+See [CHANGELOG.md](CHANGELOG.md) for the full list,
+including the new error codes.
+
+### API contract v1.3.0
 
 The SDK now follows the retry policy and the error messages of the Poli Page
 API contract.
 
-### Three codes are no longer retried
+#### Three codes are no longer retried
 
 `QUOTA_EXCEEDED` and `OVERAGE_CAP_EXCEEDED` (429) and `STORAGE_ACCESS_DENIED`
 (502) are returned at once, and `IsRetryable()` returns `false` for them. A
@@ -21,12 +51,12 @@ on `STORAGE_ACCESS_DENIED` until the bucket role is restored.
 `errors.Is(err, polipage.ErrRateLimit)` still matches them.
 
 ```go
-// 0.10.0
+// 0.9.x
 if pErr.IsRetryable() { // was true for QUOTA_EXCEEDED
     requeue(job)
 }
 
-// next release
+// 0.11.0
 switch {
 case errors.Is(err, polipage.ErrRateLimit): // QUOTA_EXCEEDED or OVERAGE_CAP_EXCEEDED
     holdUntilMonthlyReset(job)
@@ -35,20 +65,20 @@ case pErr.IsRetryable():
 }
 ```
 
-### `DOWNLOAD_FAILED` is never retryable
+#### `DOWNLOAD_FAILED` is never retryable
 
 `IsRetryable()` returns `false` for a `DOWNLOAD_FAILED` whatever the storage
 status; it was `true` for a storage 5xx or 429. A queue that requeues on
 `IsRetryable()` now drops it at once: call `Documents.Get` for a fresh
 presigned URL and download again.
 
-### `Retry-After`
+#### `Retry-After`
 
 `Retry-After: 0` now retries at once (it used to fall back to the backoff).
 Only integer seconds and HTTP-dates are read, clamped to 30 s; any other value
 falls back to the backoff.
 
-### Messages
+#### Messages
 
 If you match error messages, match `Code` instead: the SDK-side messages are
 now the specification's exact texts (`apiKey is required`,
@@ -58,7 +88,7 @@ now the specification's exact texts (`apiKey is required`,
 body, `project is required`). The `net/http` error behind a network, timeout or
 download failure is the error's `Cause`.
 
-### `Payload` JSON
+#### `Payload` JSON
 
 `json.Marshal(err.ToPayload())` now writes `"status": null` and
 `"requestId": null` when they are unknown, instead of leaving the keys out.
@@ -82,7 +112,7 @@ type errorResponse struct {
 }
 ```
 
-### Retries over HTTP/2 and mid-body failures
+#### Retries over HTTP/2 and mid-body failures
 
 The SDK no longer lets `net/http` resend a POST on its own. Over HTTP/2, a
 POST the server refused before processing it (refused stream, `GOAWAY`) used
@@ -93,35 +123,10 @@ A 2xx answer cut off while its body is read is now `network_error` (or
 `timeout`), retried by the SDK, instead of a non-retryable `INTERNAL_ERROR`
 with status 200.
 
-### Download cancellation
+#### Download cancellation
 
 Canceling the context during the PDF download now returns `aborted`, not
 `DOWNLOAD_FAILED`.
-
-## From 0.9.x to 0.10.0
-
-An API key now names its environment (`pp_{env}_…`), and a render uses
-the project's copy published in that environment. The API has dropped
-template versions, `POST /v1/render/preview` and inline-HTML rendering, so
-this release removes them from the SDK with no deprecation window.
-
-| 0.9.x | 0.10.0 |
-| --- | --- |
-| `polipage.ProjectModeInput{…, Version: polipage.Opt("1.0.0")}` | `polipage.RenderInput{…}`: publish the project to the key's environment instead of pinning a version |
-| `polipage.Opt` | removed (its only use was `Version`) |
-| `client.Render.Preview(ctx, polipage.InlineModeInput{…})`, `PreviewResult` | removed: try templates and raw HTML in the playground, https://play.poli.page. `client.Documents.Preview(ctx, id)` stays |
-| `RenderInput` (sealed interface) | `RenderInput` is now the struct formerly named `ProjectModeInput` |
-| `DocumentDescriptor.Version` | removed |
-| `DocumentDescriptor.Environment` of type `polipage.Environment`, `EnvironmentSandbox`, `EnvironmentLive` | a plain `string` with any environment name: compare with `"sandbox"`, `"live"`, … |
-| `pp_test_…` keys | `pp_sandbox_…` keys. Service keys use the same `pp_{env}_…` format (no more `pp_sa_…`) |
-| `ErrVersionNotFound`, `VERSION_NOT_FOUND`, `INVALID_VERSION_FORMAT`, `VERSION_REQUIRED`, `INVALID_VERSION_FOR_KEY_ENV` | removed: a render fails with `PROJECT_NOT_FOUND`, `PROJECT_NOT_IN_ENVIRONMENT` or `TEMPLATE_NOT_FOUND` |
-| `ErrGone`, `ErrCodeGone` (`GONE`) | `ErrDocumentGone`, `ErrCodeDocumentGone` (`DOCUMENT_GONE`) |
-| `ErrPaymentRequired`, `ErrCodePaymentRequired` (`PAYMENT_REQUIRED`) | removed: past-due billing is reported as `ORGANIZATION_PAYMENT_GRACE` |
-| `MISSING_PROJECT_OR_TEMPLATE` | removed |
-| `ThumbnailOptions.Width` always sent | every field optional: a zero value is not sent (API defaults: 400 px, `jpeg`) |
-
-See [CHANGELOG.md](CHANGELOG.md) for the full list,
-including the new error codes.
 
 ## 1.0
 

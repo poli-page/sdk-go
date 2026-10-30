@@ -5,17 +5,11 @@ description: Upgrade guides for the breaking changes between releases of the Go 
 
 This page tracks breaking changes between releases of `github.com/poli-page/sdk-go`. Before 1.0, a breaking change bumps the minor version. For the full per-release diff, see the [changelog](../changelog/).
 
-## From 0.10.0 to the next release (unreleased)
+## From 0.9.x to 0.11.0
 
-The SDK now follows the retry policy and the error messages of the [Poli Page API contract](https://github.com/poli-page/api-contract). The full guide is in [`MIGRATION.md` in the repo](https://github.com/poli-page/sdk-go/blob/main/MIGRATION.md).
+0.10.0 was never released for Go: 0.11.0 follows 0.9.0 and carries both groups of changes below.
 
-- `QUOTA_EXCEEDED` and `OVERAGE_CAP_EXCEEDED` (429) and `STORAGE_ACCESS_DENIED` (502) are no longer retried, and `IsRetryable()` returns `false` for them. A queue that requeues on `IsRetryable()` now drops these errors at once: handle them by code. See [Retries and idempotency](../../production/retries-and-idempotency/).
-- `DOWNLOAD_FAILED` is never retryable: `IsRetryable()` is `false` for it whatever the storage status (it was `true` for a storage 5xx or 429). Call `Documents.Get` for a fresh URL and download again.
-- `Retry-After: 0` retries at once; only integer seconds and HTTP-dates are read.
-- The SDK-side messages are the specification's exact texts (`apiKey is required`, `Network request failed`, `Request timed out after <ms>ms`, `Request was aborted`, `Failed to download PDF: HTTP <status>`, `Failed to download PDF: network error`, `HTTP <status>` for a non-JSON error body, `project is required`). Match `Code`, not the message. See [Errors](../../production/errors/).
-- Canceling the context during the PDF download returns `aborted`, not `DOWNLOAD_FAILED`.
-
-## From 0.9.x to 0.10.0
+### Environments replace versions
 
 An API key now names its environment (`pp_{env}_…`), and a render uses the project's copy published in that environment. Template versions, the template preview and inline-HTML rendering are gone from the API, so they are gone from the SDK, with no deprecation window.
 
@@ -31,6 +25,16 @@ An API key now names its environment (`pp_{env}_…`), and a render uses the pro
 - `ThumbnailOptions.Width` is optional: a zero value is not sent and the API uses 400 px.
 
 The full list is in [`CHANGELOG.md`](https://github.com/poli-page/sdk-go/blob/main/CHANGELOG.md) and [`MIGRATION.md`](https://github.com/poli-page/sdk-go/blob/main/MIGRATION.md).
+
+### API contract v1.3.0
+
+The SDK now follows the retry policy and the error messages of the [Poli Page API contract](https://github.com/poli-page/api-contract). The full guide is in [`MIGRATION.md` in the repo](https://github.com/poli-page/sdk-go/blob/main/MIGRATION.md).
+
+- `QUOTA_EXCEEDED` and `OVERAGE_CAP_EXCEEDED` (429) and `STORAGE_ACCESS_DENIED` (502) are no longer retried, and `IsRetryable()` returns `false` for them. A queue that requeues on `IsRetryable()` now drops these errors at once: handle them by code. See [Retries and idempotency](../../production/retries-and-idempotency/).
+- `DOWNLOAD_FAILED` is never retryable: `IsRetryable()` is `false` for it whatever the storage status (it was `true` for a storage 5xx or 429). Call `Documents.Get` for a fresh URL and download again.
+- `Retry-After: 0` retries at once; only integer seconds and HTTP-dates are read.
+- The SDK-side messages are the specification's exact texts (`apiKey is required`, `Network request failed`, `Request timed out after <ms>ms`, `Request was aborted`, `Failed to download PDF: HTTP <status>`, `Failed to download PDF: network error`, `HTTP <status>` for a non-JSON error body, `project is required`). Match `Code`, not the message. See [Errors](../../production/errors/).
+- Canceling the context during the PDF download returns `aborted`, not `DOWNLOAD_FAILED`.
 
 ## See also
 - [Changelog](../changelog/)

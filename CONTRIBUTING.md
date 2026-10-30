@@ -6,7 +6,7 @@ Thanks for your interest. A few short rules:
 
 We use **TDD**: write a failing test first, then the minimum code to pass.
 Each public method has a corresponding test in `*_test.go` next to the
-source. See `CLAUDE.md` for the full methodology.
+source.
 
 ## Commit messages
 

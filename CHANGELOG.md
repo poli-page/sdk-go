@@ -7,12 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-30
+
+Environments replace versions: an API key (`pp_{env}_…`) carries its
+environment and a render uses the project's copy published there. Breaking,
+with no deprecation window.
+
 Conformance with the Poli Page API contract v1.3.0
 ([poli-page/api-contract](https://github.com/poli-page/api-contract)). See
-[MIGRATION.md](MIGRATION.md#from-0100-to-the-next-release-unreleased).
+[MIGRATION.md](MIGRATION.md#from-09x-to-0110).
+
+### Removed
+
+- `Render.Preview`, `PreviewResult`, `InlineModeInput` and the sealed
+  `RenderInput` interface: the API removed `POST /v1/render/preview` and
+  inline-HTML rendering. `Documents.Preview` stays.
+- The `Version` field of the render input and of `DocumentDescriptor`.
+- The `Opt` helper (its only use was `Version`).
+- The `Environment` type and its `EnvironmentSandbox` / `EnvironmentLive`
+  constants.
+- Error codes `VERSION_NOT_FOUND`, `INVALID_VERSION_FORMAT`,
+  `VERSION_REQUIRED`, `INVALID_VERSION_FOR_KEY_ENV`,
+  `MISSING_PROJECT_OR_TEMPLATE`, `GONE` and `PAYMENT_REQUIRED`, and the
+  `ErrVersionNotFound`, `ErrGone` and `ErrPaymentRequired` sentinels.
 
 ### Changed
 
+- `ProjectModeInput` is renamed `RenderInput` (a struct) and is the only
+  render input. The request body holds only `project`, `template`, `data`,
+  `metadata`, `format`, `orientation` and `locale`; unset optional fields
+  are omitted.
+- `DocumentDescriptor.Environment` is a plain `string` holding any
+  environment name the API returns (`sandbox`, `live`, `staging`, …).
+- `ThumbnailOptions` fields are all optional: an unset option is not sent
+  and a zero `ThumbnailOptions` sends `{}` (API defaults: 400 px wide
+  JPEG). The SDK does not check bounds.
+- `Documents.Delete` documents that a re-delete succeeds (the API answers
+  `204`).
 - **Breaking:** `DOWNLOAD_FAILED` is never retryable, whatever the storage status
   (was retryable for a storage 5xx or 429). Contract v1.3.0.
 - **Breaking:** `QUOTA_EXCEEDED` and `OVERAGE_CAP_EXCEEDED` (429) and
@@ -108,49 +139,6 @@ Conformance with the Poli Page API contract v1.3.0
 
 ### Added
 
-- Known error code `TEMPLATE_UNSAFE` (400): the template, a partial or an SVG asset
-  holds an injection attempt; `detail` names it. Not retried.
-- `contract_test.go` runs every SDK case of the API contract against a local
-  mock server; CI pins the contract by commit (`poli-page/api-contract`
-  action) and Dependabot proposes each new version. Run it locally with
-  `POLI_CONTRACT=<path to contract.json> go test ./...`.
-
-## [0.10.0] - 2026-10-27
-
-Environments replace versions: an API key (`pp_{env}_…`) carries its
-environment and a render uses the project's copy published there. Breaking,
-with no deprecation window.
-
-### Removed
-
-- `Render.Preview`, `PreviewResult`, `InlineModeInput` and the sealed
-  `RenderInput` interface: the API removed `POST /v1/render/preview` and
-  inline-HTML rendering. `Documents.Preview` stays.
-- The `Version` field of the render input and of `DocumentDescriptor`.
-- The `Opt` helper (its only use was `Version`).
-- The `Environment` type and its `EnvironmentSandbox` / `EnvironmentLive`
-  constants.
-- Error codes `VERSION_NOT_FOUND`, `INVALID_VERSION_FORMAT`,
-  `VERSION_REQUIRED`, `INVALID_VERSION_FOR_KEY_ENV`,
-  `MISSING_PROJECT_OR_TEMPLATE`, `GONE` and `PAYMENT_REQUIRED`, and the
-  `ErrVersionNotFound`, `ErrGone` and `ErrPaymentRequired` sentinels.
-
-### Changed
-
-- `ProjectModeInput` is renamed `RenderInput` (a struct) and is the only
-  render input. The request body holds only `project`, `template`, `data`,
-  `metadata`, `format`, `orientation` and `locale`; unset optional fields
-  are omitted.
-- `DocumentDescriptor.Environment` is a plain `string` holding any
-  environment name the API returns (`sandbox`, `live`, `staging`, …).
-- `ThumbnailOptions` fields are all optional: an unset option is not sent
-  and a zero `ThumbnailOptions` sends `{}` (API defaults: 400 px wide
-  JPEG). The SDK does not check bounds.
-- `Documents.Delete` documents that a re-delete succeeds (the API answers
-  `204`).
-
-### Added
-
 - `ThumbnailFormatWebP`.
 - `ErrDocumentGone` sentinel (`410 DOCUMENT_GONE`).
 - Error codes `PUBLISH_IN_PROGRESS`, `ENVIRONMENT_MISMATCH`,
@@ -161,6 +149,12 @@ with no deprecation window.
   `RENDER_BODY_TOO_LARGE`, `DOCUMENT_TOO_LARGE` and `RENDER_TIMEOUT`.
   `503 PUBLISH_IN_PROGRESS` is retried like any 5xx, honouring
   `Retry-After`.
+- Known error code `TEMPLATE_UNSAFE` (400): the template, a partial or an SVG asset
+  holds an injection attempt; `detail` names it. Not retried.
+- `contract_test.go` runs every SDK case of the API contract against a local
+  mock server; CI pins the contract by commit (`poli-page/api-contract`
+  action) and Dependabot proposes each new version. Run it locally with
+  `POLI_CONTRACT=<path to contract.json> go test ./...`.
 
 ### Documentation and demo
 
@@ -174,7 +168,7 @@ with no deprecation window.
   expects `404 TEMPLATE_NOT_FOUND` and prints the error's code, status,
   message and request id; any other result fails the demo.
 - The docs reference lists the new error codes per method.
-- `MIGRATION.md` has a "From 0.9.x to 0.10.0" entry.
+- `MIGRATION.md` has a "From 0.9.x to 0.11.0" entry.
 
 ## [0.9.0-rc.1] - 2026-05-21
 
