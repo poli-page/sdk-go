@@ -99,3 +99,62 @@ func TestError_ToPayload_knownValuesMarshalAsIs(t *testing.T) {
 		t.Fatalf("Marshal(ToPayload()) = %s, want %s", raw, want)
 	}
 }
+
+func TestError_ToPayload_usesA502ForInvalidResponseAndKeepsThe2xx(t *testing.T) {
+	t.Parallel()
+	e := &Error{
+		Code:       ErrCodeInvalidResponse,
+		Message:    "Invalid response: HTTP 200 body is not JSON",
+		StatusCode: 200,
+		RequestID:  "req_1",
+	}
+	raw, err := json.Marshal(e.ToPayload())
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	want := `{"code":"invalid_response","message":"Invalid response: HTTP 200 body is not JSON","status":502,"requestId":"req_1"}`
+	if string(raw) != want {
+		t.Fatalf("Marshal(ToPayload()) = %s, want %s", raw, want)
+	}
+	if e.StatusCode != 200 {
+		t.Fatalf("e.StatusCode = %d, want 200 (attribute unchanged)", e.StatusCode)
+	}
+}
+
+func TestError_ToPayload_hasExactlyTheFourKeys(t *testing.T) {
+	t.Parallel()
+	for _, e := range []*Error{
+		{Code: ErrCodeIOError, Message: "Failed to write PDF: denied"},
+		{Code: ErrCodeDownloadFailed, Message: "Failed to download PDF: timeout"},
+		{Code: "NOT_FOUND", Message: "m", StatusCode: 404, RequestID: "r"},
+	} {
+		raw, err := json.Marshal(e.ToPayload())
+		if err != nil {
+			t.Fatalf("Marshal: %v", err)
+		}
+		var into map[string]any
+		if err := json.Unmarshal(raw, &into); err != nil {
+			t.Fatalf("Unmarshal: %v", err)
+		}
+		if len(into) != 4 {
+			t.Errorf("payload %s has %d keys, want exactly code, message, status, requestId", raw, len(into))
+		}
+		for _, key := range []string{"code", "message", "status", "requestId"} {
+			if _, ok := into[key]; !ok {
+				t.Errorf("payload %s misses %q", raw, key)
+			}
+		}
+	}
+}
+
+func TestError_IsRetryable_neverForInvalidResponseOrIOError(t *testing.T) {
+	t.Parallel()
+	for _, e := range []*Error{
+		{Code: ErrCodeInvalidResponse, StatusCode: 200},
+		{Code: ErrCodeIOError},
+	} {
+		if e.IsRetryable() {
+			t.Errorf("IsRetryable() = true for %s, want false", e.Code)
+		}
+	}
+}

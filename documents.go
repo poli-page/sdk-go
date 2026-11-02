@@ -2,7 +2,6 @@ package polipage
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"strconv"
 
@@ -34,9 +33,8 @@ func (d *Documents) Get(ctx context.Context, id string, opts ...option.RequestOp
 	defer func() { _ = resp.Body.Close() }()
 
 	var doc DocumentDescriptor
-	if err := json.NewDecoder(resp.Body).Decode(&doc); err != nil {
-		_, _ = io.Copy(io.Discard, resp.Body)
-		return nil, bodyReadError(resp.StatusCode, "failed to decode response body: ", err)
+	if err := d.client.decodeJSON(resp, &doc); err != nil {
+		return nil, err
 	}
 	if doc.Metadata == nil {
 		doc.Metadata = make(RenderMetadata)
@@ -108,9 +106,8 @@ func (d *Documents) Thumbnails(ctx context.Context, id string, options Thumbnail
 	var envelope struct {
 		Thumbnails []Thumbnail `json:"thumbnails"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
-		_, _ = io.Copy(io.Discard, resp.Body)
-		return nil, bodyReadError(resp.StatusCode, "failed to decode response body: ", err)
+	if err := d.client.decodeJSON(resp, &envelope); err != nil {
+		return nil, err
 	}
 	return envelope.Thumbnails, nil
 }

@@ -348,11 +348,39 @@ func (c *Client) sendOnce(ctx context.Context, method, path string, bodyBytes []
 	return nil, after, retryable, apiErr
 }
 
-// bodyReadError maps a failure decoding a 2xx API body, which sendOnce has
-// already read in full: ErrCodeInternalError with the answer's status.
-// Cause wraps err.
+// bodyReadError maps a failure reading or decoding a 2xx API body, which
+// sendOnce has already read in full: ErrCodeInternalError with the answer's
+// status. Cause wraps err.
 func bodyReadError(status int, what string, err error) *Error {
 	return &Error{Code: ErrCodeInternalError, StatusCode: status, Message: what + err.Error(), Cause: err}
+}
+
+// decodeJSON decodes the body of a 2xx API answer into v. A body that is not
+// JSON at all (an HTML page from a proxy or a captive portal, an empty body)
+// is ErrCodeInvalidResponse with the real status and the answer's
+// x-request-id, never retried, and reported to OnError; the syntax error is
+// wrapped in Cause. Valid JSON of the wrong shape keeps ErrCodeInternalError.
+func (c *Client) decodeJSON(resp *http.Response, v any) *Error {
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return bodyReadError(resp.StatusCode, "failed to read response body: ", err)
+	}
+	err = json.Unmarshal(data, v)
+	if err == nil {
+		return nil
+	}
+	if !json.Valid(data) {
+		invalid := &Error{
+			Code:       ErrCodeInvalidResponse,
+			StatusCode: resp.StatusCode,
+			Message:    fmt.Sprintf("Invalid response: HTTP %d body is not JSON", resp.StatusCode),
+			RequestID:  resp.Header.Get(constants.HeaderRequestID),
+			Cause:      err,
+		}
+		c.fireOnError(invalid)
+		return invalid
+	}
+	return bodyReadError(resp.StatusCode, "failed to decode response body: ", err)
 }
 
 // timeoutMessage is the timeout error's message: the attempt's timeout in

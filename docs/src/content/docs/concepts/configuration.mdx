@@ -9,7 +9,7 @@ description: Per-client and per-call functional options for timeouts, retries, a
 
 - `option.WithAPIKey(key)` (required) — your API key. The key names its environment (`pp_{env}_…`); see [Authentication](../authentication/).
 - `option.WithBaseURL(url)` — override the API endpoint. Defaults to `https://api.poli.page`.
-- `option.WithTimeout(d)` — per-request fallback deadline. Applied when the caller's `context.Context` has no deadline of its own. Defaults to `60s`.
+- `option.WithTimeout(d)` — per-request fallback deadline. Applied when the caller's `context.Context` has no deadline of its own. Defaults to `60s`. It also bounds the presigned PDF download: the whole download for `Render.PDF` and `DownloadPDF`, the wait for each read for `Render.PDFStream`.
 - `option.WithMaxRetries(n)` — retry budget on top of the initial attempt. Defaults to `2` (three attempts total).
 - `option.WithRetryDelay(d)` — base exponential-backoff delay. Defaults to `500ms`.
 - `option.WithHTTPClient(c)` — inject a custom `*http.Client` (proxies, TLS pinning, recording).
@@ -20,7 +20,7 @@ description: Per-client and per-call functional options for timeouts, retries, a
 ## Per-call overrides
 
 - `option.WithIdempotencyKey(key)` — override the SDK-generated UUID v4 `Idempotency-Key`.
-- `option.WithRequestTimeout(d)` — override the per-request timeout for a single call.
+- `option.WithRequestTimeout(d)` — override the per-request timeout for a single call, its PDF download included.
 - `option.WithHeader(key, value)` — add or override a header for one call only.
 
 ## Example
