@@ -125,7 +125,7 @@ defer body.Close()
 _, err = io.Copy(w, body)
 ```
 
-The PDF download is bounded by the client's timeout (`option.WithTimeout`, or `option.WithRequestTimeout` on the call), unless `ctx` already has a deadline. For `Render.PDF` and `DownloadPDF` it bounds the whole download. For `PDFStream` it is an idle timeout: it bounds the wait for the storage's answer and each read, not the total, so a large PDF read at your own pace is not cut off. Past it, the call (or the stream's `Read`) returns `ErrCodeDownloadFailed` with the message `Failed to download PDF: timeout` and no status.
+The PDF download is bounded by the client's timeout (`option.WithTimeout`, or `option.WithRequestTimeout` on the call), on top of `ctx`: when `ctx` has its own deadline, the first bound to end wins. For `Render.PDF` and `DownloadPDF` it bounds the whole download. For `PDFStream` it is an idle timeout: it bounds the wait for the storage's answer and each read, not the total, so a large PDF read at your own pace is not cut off. Past it, the call (or the stream's `Read`) returns `ErrCodeDownloadFailed` with the message `Failed to download PDF: timeout` and no status.
 
 ## Working with stored documents
 
@@ -275,7 +275,7 @@ defer cancel()
 pdf, err := client.Render.PDF(ctx, in)
 ```
 
-When the context is canceled, the SDK returns `*polipage.Error` with `Code == ErrCodeAborted`, also while the PDF is downloaded or streamed; when the deadline expires, `Code == ErrCodeTimeout`. Caller-aborted errors are never retried.
+When the context is canceled, the SDK returns `*polipage.Error` with `Code == ErrCodeAborted`, also while the PDF is downloaded or streamed; when the deadline expires, `Code == ErrCodeTimeout`, except during the PDF download, where it is `ErrCodeDownloadFailed` with `Failed to download PDF: network error` (`errors.Is(err, context.DeadlineExceeded)` still tells it apart). Caller-aborted errors are never retried.
 
 ## Observability
 

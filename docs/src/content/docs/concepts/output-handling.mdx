@@ -16,7 +16,7 @@ pdf, err := client.Render.PDF(ctx, polipage.RenderInput{
 // pdf: []byte — write, upload, return as-is.
 ```
 
-Best for documents that fit comfortably in process memory. The download is bounded as a whole by the client's timeout (`option.WithTimeout`, or `option.WithRequestTimeout` on the call) unless `ctx` already has a deadline; past it, the call returns `DOWNLOAD_FAILED` with the message `Failed to download PDF: timeout`.
+Best for documents that fit comfortably in process memory. The download is bounded as a whole by the client's timeout (`option.WithTimeout`, or `option.WithRequestTimeout` on the call), on top of `ctx`'s own deadline (the first to end wins); past it, the call returns `DOWNLOAD_FAILED` with the message `Failed to download PDF: timeout`.
 
 ## Streaming (`Render.PDFStream`)
 

@@ -53,8 +53,9 @@ to 0.13 (see [RELEASING.md](RELEASING.md#versions)). The module path stays
   The directory and the temporary file are prepared before the render, so a
   path that cannot be written costs no render.
 - The presigned-URL download is bounded by the client's timeout
-  (`option.WithTimeout`, or the call's `option.WithRequestTimeout`), unless
-  the caller's context already has a deadline. Before, `Render.PDF`,
+  (`option.WithTimeout`, or the call's `option.WithRequestTimeout`), on top
+  of the caller's context: when the context has its own deadline, the first
+  bound to end wins. Before, `Render.PDF`,
   `Render.PDFStream` and `RenderToFile` downloads had no SDK bound, and
   `DownloadPDF` had one only with `option.WithDownloadTimeout`. For
   `Render.PDF` and `DownloadPDF` the timeout bounds the whole download. For

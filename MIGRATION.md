@@ -49,7 +49,8 @@ very large PDF fetched with `Render.PDF` or `DownloadPDF` on a slow link,
 raise `option.WithTimeout`, pass `option.WithDownloadTimeout` to
 `DownloadPDF`, or use `Render.PDFStream`, whose timeout applies to each
 read rather than to the whole download. A context with its own deadline
-still replaces the SDK's timeout.
+no longer replaces the SDK's timeout for the download: the first bound to
+end wins.
 
 ## From 0.9.x to 0.11.0
 

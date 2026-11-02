@@ -64,9 +64,10 @@ func (r *Render) Document(ctx context.Context, in RenderInput, opts ...option.Re
 // PresignedPDFURL to fetch the bytes.
 //
 // The download is bounded as a whole (body included) by the call's
-// [option.WithRequestTimeout], else the client's [option.WithTimeout], unless
-// ctx already has a deadline. Past it, the call returns ErrCodeDownloadFailed
-// with the message "Failed to download PDF: timeout" and no status.
+// [option.WithRequestTimeout], else the client's [option.WithTimeout], on top
+// of ctx: the first bound to end wins. Past the SDK's timeout, the call returns
+// ErrCodeDownloadFailed with the message "Failed to download PDF: timeout" and
+// no status.
 func (r *Render) PDF(ctx context.Context, in RenderInput, opts ...option.RequestOption) ([]byte, error) {
 	doc, err := r.Document(ctx, in, opts...)
 	if err != nil {
@@ -80,9 +81,9 @@ func (r *Render) PDF(ctx context.Context, in RenderInput, opts ...option.Request
 // or a file without buffering.
 //
 // The download's timeout (the call's [option.WithRequestTimeout], else the
-// client's [option.WithTimeout], unless ctx already has a deadline) is an
-// idle timeout: it bounds the wait for the storage's answer and for each
-// read of the stream, not the total, so a large PDF read at the caller's
+// client's [option.WithTimeout]) is an idle timeout, on top of ctx (the first
+// bound to end wins): it bounds the wait for the storage's answer and for
+// each read of the stream, not the total, so a large PDF read at the caller's
 // pace is not cut off. Past it, PDFStream or the stream's Read returns
 // ErrCodeDownloadFailed with the message "Failed to download PDF: timeout".
 //
@@ -101,7 +102,8 @@ func (r *Render) PDFStream(ctx context.Context, in RenderInput, opts ...option.R
 // retry.
 //
 // The whole download, body included, is bounded by [option.WithDownloadTimeout],
-// else the client's [option.WithTimeout], unless ctx already has a deadline.
+// else the client's [option.WithTimeout], on top of ctx: the first bound to
+// end wins.
 // A non-2xx answer returns *Error with Code == ErrCodeDownloadFailed and the
 // storage status; a network failure, before the answer or while the body is
 // read (a body that ends short of its Content-Length included), returns
@@ -162,8 +164,9 @@ var errDownloadTimeout = fmt.Errorf("polipage: download timeout: %w", context.De
 //
 // The returned body uses the SDK's *http.Client (for TLS, proxy, etc.)
 // but the request itself carries no SDK headers and is NOT subject to
-// the retry loop. When timeout > 0 and the caller's ctx has no deadline,
-// the download is bounded: as a whole (until Close) when idle is false; when
+// the retry loop. When timeout > 0, the download is bounded, on top of the
+// caller's ctx (the first bound to end wins): as a whole (until Close) when
+// idle is false; when
 // idle is true, only while the SDK waits on the storage, for its answer or
 // inside a Read, so the time the caller spends between two Reads does not
 // count. A zero or negative timeout leaves the download unbounded, as
@@ -174,18 +177,18 @@ func (c *Client) downloadStream(ctx context.Context, url string, timeout time.Du
 	cancel := context.CancelFunc(func() {})
 	var timer *time.Timer
 	if timeout > 0 {
-		if _, hasDeadline := ctx.Deadline(); !hasDeadline {
-			if idle {
-				var cancelCause context.CancelCauseFunc
-				ctx, cancelCause = context.WithCancelCause(ctx)
-				timer = time.AfterFunc(timeout, func() { cancelCause(errDownloadTimeout) })
-				cancel = func() {
-					timer.Stop()
-					cancelCause(context.Canceled)
-				}
-			} else {
-				ctx, cancel = context.WithTimeoutCause(ctx, timeout, errDownloadTimeout)
+		// Derived from the caller's ctx, so its own deadline and cancellation
+		// still apply: whichever bound comes first ends the download.
+		if idle {
+			var cancelCause context.CancelCauseFunc
+			ctx, cancelCause = context.WithCancelCause(ctx)
+			timer = time.AfterFunc(timeout, func() { cancelCause(errDownloadTimeout) })
+			cancel = func() {
+				timer.Stop()
+				cancelCause(context.Canceled)
 			}
+		} else {
+			ctx, cancel = context.WithTimeoutCause(ctx, timeout, errDownloadTimeout)
 		}
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)

@@ -274,3 +274,51 @@ func TestRender_PDFStream_cancelBeforeTheAnswerIsAbortedNotTimeout(t *testing.T)
 	}
 	wantAborted(t, err)
 }
+
+// The SDK timeout and the caller's ctx compose: the first bound to end wins.
+func TestDownload_sdkTimeoutWinsOverALaterCallerDeadline(t *testing.T) {
+	t.Parallel()
+	calls := map[string]func(context.Context, *polipage.Client) error{
+		"Render.PDF": func(ctx context.Context, c *polipage.Client) error {
+			_, err := c.Render.PDF(ctx, minimalInput())
+			return err
+		},
+		"Render.PDFStream": func(ctx context.Context, c *polipage.Client) error {
+			s, err := c.Render.PDFStream(ctx, minimalInput())
+			if err == nil {
+				_ = s.Close()
+			}
+			return err
+		},
+	}
+	for name, call := range calls {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			server := downloadServer(t, hangPDF)
+			client := newTestClient(t, server, option.WithTimeout(150*time.Millisecond))
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			start := time.Now()
+			err := call(ctx, client)
+			wantDownloadTimeout(t, err)
+			// Ended by the 150 ms SDK timeout, well before the 3 s deadline.
+			within(t, start, 2*time.Second)
+		})
+	}
+}
+
+func TestDownload_callerCancelWithADeadlineIsAborted(t *testing.T) {
+	t.Parallel()
+	server := downloadServer(t, hangPDF)
+	client := newTestClient(t, server, option.WithTimeout(time.Minute))
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	time.AfterFunc(100*time.Millisecond, cancel)
+	start := time.Now()
+	stream, err := client.Render.PDFStream(ctx, minimalInput())
+	if err == nil {
+		_ = stream.Close()
+	}
+	wantAborted(t, err)
+	within(t, start, 2*time.Second)
+}
