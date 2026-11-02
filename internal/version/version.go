@@ -3,4 +3,4 @@
 package version
 
 // Version is the current SDK release. Bumped manually on each release.
-const Version = "0.11.0"
+const Version = "0.13.0"
