@@ -5,11 +5,15 @@
 #   scripts/release.sh vX.Y.Z              # full release: verify + confirm + tag locally
 #   scripts/release.sh --dry-run vX.Y.Z    # everything except the tag
 #
+# Pre-flight refuses a tag whose major.minor differs from the API contract
+# pinned in .github/workflows/ci.yml (scripts/check-contract-version.sh).
+#
 # Pushing the tag is a separate manual step (`git push origin vX.Y.Z`) so
 # the release moment stays explicit. There is no CI workflow that auto-
 # publishes — proxy.golang.org indexes the tag once it lands on the remote;
 # that is the entire publishing surface (matches anthropic-sdk-go,
-# openai-go, stripe-go).
+# openai-go, stripe-go). The Release workflow re-runs the version checks on
+# the pushed tag, but by then the tag is public: this script is the gate.
 
 set -euo pipefail
 
@@ -21,7 +25,7 @@ for arg in "$@"; do
   case "$arg" in
     --dry-run) dry_run=1 ;;
     --help|-h)
-      sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     v*) version="$arg" ;;
@@ -84,6 +88,11 @@ if [[ "$declared" != "$expected" ]]; then
   fail "internal/version.Version = \"$declared\", expected \"$expected\" — bump it before releasing"
 fi
 ok "internal/version.Version = $declared"
+
+# The SDK shares its major.minor with the Poli Page API: the contract commit
+# CI pins must carry a stable tag of the release's major.minor.
+contract_check="$(./scripts/check-contract-version.sh "$version" 2>&1)" || fail "$contract_check"
+ok "$contract_check"
 
 # ─── verify ─────────────────────────────────────────────────────────────
 
