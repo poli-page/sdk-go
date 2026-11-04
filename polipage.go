@@ -222,8 +222,12 @@ func (c *Client) sendOnce(ctx context.Context, method, path string, bodyBytes []
 	// The attempt timeout applies on top of the caller's ctx: whichever ends
 	// first ends the attempt. Only errAttemptTimeout as the attempt's cause
 	// says the SDK's own timer fired; the caller's deadline or cancel is
-	// mapped from ctx instead.
-	attemptCtx, cleanup := context.WithTimeoutCause(ctx, timeout, errAttemptTimeout)
+	// mapped from ctx instead. A zero or negative timeout sets no SDK bound,
+	// as for the download: only ctx bounds the attempt.
+	attemptCtx, cleanup := ctx, context.CancelFunc(func() {})
+	if timeout > 0 {
+		attemptCtx, cleanup = context.WithTimeoutCause(ctx, timeout, errAttemptTimeout)
+	}
 	sdkTimedOut := func() bool { return errors.Is(context.Cause(attemptCtx), errAttemptTimeout) }
 
 	url := httpx.BuildURL(c.cfg.BaseURL, path)

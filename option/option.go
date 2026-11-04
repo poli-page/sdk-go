@@ -72,7 +72,8 @@ func WithRetryDelay(d time.Duration) RequestOption {
 // on top of the caller's context: when the context has its own deadline, the
 // first to end wins. Only this timeout gives the timeout error's message
 // "Request timed out after <ms>ms"; the caller's own deadline is a timeout
-// too, but is never retried.
+// too, but is never retried. A zero or negative d sets no SDK bound: only
+// the caller's context bounds the attempts and the download.
 //
 // The same value bounds the presigned PDF download: the whole download for
 // Render.PDF and DownloadPDF, an idle timeout (the wait for the storage's

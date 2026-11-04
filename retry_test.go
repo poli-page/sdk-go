@@ -498,3 +498,29 @@ func TestTimeout_callerCancelWithADeadlineIsAborted(t *testing.T) {
 		t.Fatalf("err = %v, want Code=aborted", err)
 	}
 }
+
+// A zero timeout sets no SDK bound on an attempt: only the caller's ctx does.
+func TestTimeout_zeroTimeoutLeavesTheAttemptToTheCallerContext(t *testing.T) {
+	t.Parallel()
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-time.After(50 * time.Millisecond):
+		case <-r.Context().Done():
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, canonicalDescriptorJSON())
+	}))
+	t.Cleanup(slow.Close)
+	for name, timeout := range map[string]time.Duration{"zero": 0, "negative": -time.Second} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			client := newTestClient(t, slow, option.WithTimeout(timeout), option.WithMaxRetries(0))
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if _, err := client.Documents.Get(ctx, "doc_1"); err != nil {
+				t.Fatalf("Get err = %v, want success: a timeout of %v sets no SDK bound", err, timeout)
+			}
+		})
+	}
+}
