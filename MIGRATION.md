@@ -5,6 +5,92 @@ This file documents breaking changes between releases of
 before 1.0 a breaking change bumps the minor version, from 1.0 on the
 major version, and every breaking change comes with an entry here.
 
+## From 0.11.0 to 0.13.0
+
+0.12 was never released for Go: the SDK now shares its major.minor with the
+Poli Page API, and 0.13.0 passes the API contract v0.13.0. The module path
+does not change.
+
+| 0.11.0 | 0.13.0 |
+| --- | --- |
+| `ErrCodeIOFailed` (`io_failed`), `ErrIOFailed` | `ErrCodeIOError` (`io_error`), `ErrIOError` |
+| `RenderToFile` write failures: `failed to create directory: …`, `failed to create file: …`, `failed to write file: …` | `Failed to write PDF: <path>: <reason>`, e.g. `Failed to write PDF: /out/invoice.pdf: permission denied` |
+| `RenderToFile` on a read-only target: fails after the render | `io_error` before any API call |
+| `RenderToFile` to a FIFO, socket or device (`/dev/stdout`): written through | `io_error`, `not a regular file`, before any API call: copy `Render.PDFStream` into it instead |
+| `option.WithTimeout(0)`: every attempt timed out at once | no SDK bound: only the caller's context bounds the call |
+| An API attempt under a ctx with a deadline: the deadline replaced `option.WithTimeout` | the shorter of the SDK timeout and the caller's deadline wins |
+| A 2xx whose body is not JSON: `INTERNAL_ERROR`, `failed to decode response body: …` | `invalid_response` (`ErrCodeInvalidResponse`, `ErrInvalidResponse`), `Invalid response: HTTP <status> body is not JSON` |
+| A download past its timeout: `Failed to download PDF: network error` | `Failed to download PDF: timeout` (still `DOWNLOAD_FAILED`, no status) |
+| `Render.PDF`, `Render.PDFStream`, `RenderToFile` downloads: no SDK timeout | bounded by `option.WithTimeout` / `option.WithRequestTimeout` |
+| `DownloadPDF`: no SDK timeout without `option.WithDownloadTimeout` | bounded by `option.WithTimeout`; `option.WithDownloadTimeout(0)` removes the bound |
+
+### `io_failed` is now `io_error`
+
+```go
+// 0.11.0
+if errors.Is(err, polipage.ErrIOFailed) { … }
+
+// 0.13.0
+if errors.Is(err, polipage.ErrIOError) { … }
+```
+
+The `os` error is still the `Cause`, so `errors.As(err, &pathErr)` with an
+`*os.PathError` works as before. A failed `RenderToFile` no longer leaves a
+partial file: the target keeps its previous content, or is not created. A
+symbolic link is written through and stays a link; an existing target keeps
+its permission bits (without setuid, setgid or sticky), not its owner or
+group, and other hard links to it keep the old content. A read-only target is
+refused before any API call, and so is a target that is not a regular file:
+
+```go
+// 0.11.0
+err := polipage.RenderToFile(ctx, client, in, "/dev/stdout")
+
+// 0.13.0
+body, err := client.Render.PDFStream(ctx, in)
+if err != nil {
+    return err
+}
+defer body.Close()
+_, err = io.Copy(os.Stdout, body)
+```
+
+### A non-JSON 2xx is `invalid_response`
+
+A proxy or captive portal that answers `200` with an HTML page used to give
+`INTERNAL_ERROR`. It now gives `invalid_response`, with the real status in
+`StatusCode` and `502` in `ToPayload().Status`. It is never retried, as
+before. Code that matched `INTERNAL_ERROR` with a 2xx `StatusCode` should
+match `polipage.ErrInvalidResponse` instead.
+
+### The PDF download has a timeout
+
+The download now stops after the client's timeout (60 s by default). For a
+very large PDF fetched with `Render.PDF` or `DownloadPDF` on a slow link,
+raise `option.WithTimeout`, pass `option.WithDownloadTimeout` to
+`DownloadPDF`, or use `Render.PDFStream`, whose timeout applies to each
+read rather than to the whole download. A context with its own deadline
+no longer replaces the SDK's timeout for the download: the first bound to
+end wins.
+
+### The SDK timeout and a context deadline compose
+
+The same holds for each API attempt: the shorter of the SDK timeout
+(`option.WithTimeout`, `option.WithRequestTimeout`) and the caller's
+deadline wins. Before, a context with a deadline replaced the SDK timeout,
+so one stalled attempt could use all of it. When the SDK timeout fires, the
+error is `timeout` with `Request timed out after <ms>ms` and is retried; when
+the caller's deadline fires, it is `timeout` too but is not retried, as
+before.
+
+```go
+// 0.13.0: each attempt stops after 10 s, the whole call after 2 min.
+client := polipage.NewClient(option.WithAPIKey(key), option.WithTimeout(10*time.Second))
+ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+defer cancel()
+doc, err := client.Render.Document(ctx, in)
+```
+
 ## From 0.9.x to 0.11.0
 
 0.10.0 was never released for Go: 0.11.0 follows 0.9.0 and carries both groups

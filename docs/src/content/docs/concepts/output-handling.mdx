@@ -16,7 +16,7 @@ pdf, err := client.Render.PDF(ctx, polipage.RenderInput{
 // pdf: []byte — write, upload, return as-is.
 ```
 
-Best for documents that fit comfortably in process memory.
+Best for documents that fit comfortably in process memory. The download is bounded as a whole by the client's timeout (`option.WithTimeout`, or `option.WithRequestTimeout` on the call), on top of `ctx`'s own deadline (the first to end wins); past it, the call returns `DOWNLOAD_FAILED` with the message `Failed to download PDF: timeout`.
 
 ## Streaming (`Render.PDFStream`)
 
@@ -35,9 +35,11 @@ defer body.Close()
 // io.Copy(w, body) — pipe to an HTTP response, an S3 upload, or any io.Writer.
 ```
 
+Here the timeout is an idle timeout: it bounds the wait for the storage's answer and each read, not the total, so a large PDF read at your own pace is not cut off. Past it, `Render.PDFStream` or the stream's `Read` returns `DOWNLOAD_FAILED` with the message `Failed to download PDF: timeout`.
+
 ## Write to file (`RenderToFile`)
 
-The top-level `RenderToFile` helper streams bytes directly to disk with bounded memory. Parent directories are created automatically.
+The top-level `RenderToFile` helper streams bytes directly to disk with bounded memory. Parent directories are created automatically. The PDF is written to a temporary file in the same directory and renamed over the target only once complete, so a failed render, download or write leaves the target untouched. When the path is a symbolic link, the file it points to is written and the link stays a link. An existing target keeps its permission bits (without setuid, setgid or sticky), but not its owner or group, and other hard links to it keep the old content (the PDF is a new file renamed into place). A read-only target, or one that is not a regular file (a directory, FIFO, socket or device such as `/dev/stdout`), is refused before any API call; to write to a pipe or stdout, copy `Render.PDFStream` into it. A file that cannot be written returns `io_error` with the message `Failed to write PDF: <path>: <reason>`, for example `Failed to write PDF: /out/invoice.pdf: permission denied`.
 
 ```go
 err := polipage.RenderToFile(

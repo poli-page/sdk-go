@@ -29,7 +29,7 @@ _ = pdf
 
 ## Cancellation vs timeout
 
-`option.WithTimeout` only applies when the caller's context has no deadline of its own — the SDK wraps the call in `context.WithTimeout` to enforce a fallback. If you pass a context with a deadline, that deadline always wins.
+`option.WithTimeout` bounds each attempt on top of the caller's context: the SDK derives each attempt's context from yours with its own timeout, so when your context has a deadline, the first to end wins. The SDK's timeout gives `Request timed out after <ms>ms` and is retried; your own deadline gives `timeout` too, but is not retried.
 
 `ErrAborted` (caller cancellation) is **never retried**. The SDK assumes you meant it.
 

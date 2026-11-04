@@ -7,8 +7,9 @@ import (
 )
 
 // Error is the single error type raised by the SDK: API errors, network
-// failures, timeouts, caller cancellation, and constructor validation
-// failures all surface as *Error.
+// failures, timeouts, caller cancellation, download failures, invalid
+// responses, file write failures and constructor validation failures all
+// surface as *Error.
 //
 // Callers can use either errors.Is against the package-level sentinels
 // (ErrNotFound, ErrUnauthorized, etc.) for quick branching or errors.As
@@ -43,9 +44,11 @@ func (e *Error) Error() string {
 func (e *Error) Unwrap() error { return e.Cause }
 
 // Payload is the canonical wire shape for framework integrations:
-// {code, message, status, requestId}. Status is the API HTTP status for
-// status-bearing failures, 503 for network failures, 504 for timeouts, and
-// 0 otherwise. In JSON, a zero Status and an empty RequestID are null.
+// {code, message, status, requestId}, exactly these four JSON keys. Status is
+// the API HTTP status for status-bearing failures, 503 for network failures,
+// 504 for timeouts, 502 for invalid_response (whose own StatusCode is the
+// real 2xx, which an integration must not answer an error with), and 0
+// otherwise. In JSON, a zero Status and an empty RequestID are null.
 //
 // Do not embed Payload in another struct: its MarshalJSON is promoted, so
 // the embedding struct marshals as the Payload alone and its own fields
@@ -77,17 +80,18 @@ func (p Payload) MarshalJSON() ([]byte, error) {
 }
 
 // ToPayload returns the canonical wire payload for framework integrations.
-// The Error.StatusCode field stays 0 for transport failures — only the
-// payload surfaces 503/504, so callers reading StatusCode are not affected.
+// The Error.StatusCode field is never changed: it stays 0 for transport
+// failures and keeps the real 2xx for invalid_response. Only the payload
+// surfaces 503, 504 and 502, so callers reading StatusCode are not affected.
 func (e *Error) ToPayload() Payload {
 	status := e.StatusCode
-	if status == 0 {
-		switch e.Code {
-		case ErrCodeTimeout:
-			status = 504
-		case ErrCodeNetworkError:
-			status = 503
-		}
+	switch {
+	case e.Code == ErrCodeInvalidResponse:
+		status = 502
+	case status == 0 && e.Code == ErrCodeTimeout:
+		status = 504
+	case status == 0 && e.Code == ErrCodeNetworkError:
+		status = 503
 	}
 	return Payload{
 		Code:      e.Code,
@@ -145,12 +149,17 @@ func (e *Error) IsNetworkError() bool {
 // network failure, a timeout, a 5xx or a 429, except QUOTA_EXCEEDED,
 // OVERAGE_CAP_EXCEEDED and STORAGE_ACCESS_DENIED, which last until the
 // monthly reset or until the bucket access is restored. A DOWNLOAD_FAILED is
-// never retryable, whatever the storage status. Caller-aborted requests are
-// never retryable. The SDK already retries internally up to
-// the configured limit; this predicate is useful when an outer queue or
-// scheduler decides whether to re-enqueue the job.
+// never retryable, whatever the storage status. Caller-aborted requests,
+// invalid_response (the same answer would come back) and io_error (the file
+// still cannot be written) are never retryable. The SDK already retries
+// internally up to the configured limit; this predicate is useful when an
+// outer queue or scheduler decides whether to re-enqueue the job.
 func (e *Error) IsRetryable() bool {
-	if e.Code == ErrCodeAborted || e.Code == ErrCodeDownloadFailed || isNonRetryableCode(e.Code) {
+	switch e.Code {
+	case ErrCodeAborted, ErrCodeDownloadFailed, ErrCodeInvalidResponse, ErrCodeIOError:
+		return false
+	}
+	if isNonRetryableCode(e.Code) {
 		return false
 	}
 	if e.IsNetworkError() {
@@ -188,16 +197,25 @@ const (
 	// ErrCodeUnknownError is the fallback code when an error-body JSON has
 	// no recognised fields.
 	ErrCodeUnknownError = "unknown_error"
-	// ErrCodeDownloadFailed marks a failure fetching a presigned PDF URL.
+	// ErrCodeDownloadFailed marks a failure fetching a presigned PDF URL:
+	// a non-2xx storage answer (with its status), a network failure, or a
+	// download that outlasted the timeout (no status). Never retryable.
 	ErrCodeDownloadFailed = "DOWNLOAD_FAILED"
+	// ErrCodeInvalidResponse marks a 2xx API answer whose body is not JSON,
+	// from a method that expects JSON (the render call, Documents.Get,
+	// Documents.Thumbnails). StatusCode is the real 2xx; the JSON syntax
+	// error is wrapped in Cause. Usually a proxy or captive portal between
+	// the SDK and the API. Never retried.
+	ErrCodeInvalidResponse = "invalid_response"
 	// ErrCodeInternalError is the SDK-side fallback when the response body
 	// is unparseable or missing. Distinct from ErrCodeAPIInternalError, which
 	// has the same wire value but originates from the API.
 	ErrCodeInternalError = "INTERNAL_ERROR"
-	// ErrCodeIOFailed marks local filesystem failures from [RenderToFile]
-	// (MkdirAll / Create / write errors). The underlying os error is wrapped
-	// in Cause — use errors.Unwrap or errors.As(*os.PathError) to inspect.
-	ErrCodeIOFailed = "io_failed"
+	// ErrCodeIOError marks a file [RenderToFile] could not write (creating
+	// the parent directory, the temporary file, writing it or renaming it
+	// into place). No status; never retried. The underlying os error is
+	// wrapped in Cause — use errors.As(*os.PathError) to inspect.
+	ErrCodeIOError = "io_error"
 )
 
 // Known API error codes pass through verbatim from the deployed API.
@@ -264,7 +282,8 @@ var (
 	ErrAborted               = &Error{Code: ErrCodeAborted}               //
 	ErrNetwork               = &Error{Code: ErrCodeNetworkError}          //
 	ErrDownloadFailed        = &Error{Code: ErrCodeDownloadFailed}        //
-	ErrIOFailed              = &Error{Code: ErrCodeIOFailed}              // local filesystem write failure from RenderToFile
+	ErrInvalidResponse       = &Error{Code: ErrCodeInvalidResponse}       // 2xx API answer whose body is not JSON
+	ErrIOError               = &Error{Code: ErrCodeIOError}               // RenderToFile could not write the file
 	ErrOrganizationCancelled = &Error{Code: ErrCodeOrganizationCancelled} // 403 — subscription cancelled, service is read-only
 	ErrOrganizationPurged    = &Error{Code: ErrCodeOrganizationPurged}    // 410 — organization data has been purged
 )

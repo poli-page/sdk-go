@@ -1,0 +1,57 @@
+name: Release
+
+# Tag-triggered release checks. A Go module has no upload step: pushing the
+# vX.Y.Z tag is the release, and proxy.golang.org indexes it on the first
+# request for that version. This workflow cannot hold a tag back, so the gate
+# is scripts/release.sh, run before the tag is pushed; this re-runs its version
+# checks on the tag itself, so a mismatching tag shows up red at once and can
+# be retracted before anyone depends on it.
+#
+# The full test matrix runs on the same push: ci.yml triggers on every push,
+# tags included.
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*' # prereleases (e.g. v0.14.0-rc.1)
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Version matches tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4.2.2
+
+      # The module version is the tag, but the User-Agent reports
+      # internal/version.Version: a mismatch means the release commit forgot
+      # to bump the constant.
+      - name: Version constant matches tag
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          declared="$(grep -oE '"[^"]*"' internal/version/version.go | tr -d '"')"
+          if [ "$tag" != "$declared" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match internal/version.Version ($declared)"
+            exit 1
+          fi
+          echo "Tag matches internal/version.Version: $declared"
+
+      - name: CHANGELOG has the release section
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          if ! grep -qF "## [${version}] - " CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## [${version}] - YYYY-MM-DD' section"
+            exit 1
+          fi
+          echo "CHANGELOG.md has the ${version} section"
+
+      # The SDK shares its major.minor with the Poli Page API: a release X.Y.z
+      # must pass the API contract X.Y. The script reads the contract commit
+      # ci.yml pins and requires a stable contract tag vX.Y.Z on it with the
+      # tag's major.minor.
+      - name: Pinned API contract matches the tag's major.minor
+        run: ./scripts/check-contract-version.sh "${GITHUB_REF_NAME}"

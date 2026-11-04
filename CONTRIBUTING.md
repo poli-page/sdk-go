@@ -55,17 +55,26 @@ ignores them.
 
 ## Releasing
 
+How SDK versions follow the Poli Page API's is in
+[RELEASING.md](RELEASING.md#versions): the SDK shares the API's major.minor,
+and a release must pass the API contract of that major.minor.
+
 Releases are **manual**. There is no CI workflow that auto-publishes — by
 design. The Go module system is its own registry: pushing a `vX.Y.Z` tag
 to the repo is the entire release. `proxy.golang.org` picks it up within
-minutes; `sum.golang.org` records the checksum for transparency.
+minutes; `sum.golang.org` records the checksum for transparency. The
+Release workflow (`.github/workflows/release.yml`) then checks the pushed
+tag against `internal/version.Version`, `CHANGELOG.md` and the pinned API
+contract; it cannot hold the tag back, so run `scripts/release.sh` first.
 
 1. Bump the `Version` constant in `internal/version/version.go`.
 2. Move `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD` in `CHANGELOG.md`.
 3. If a MAJOR bump, add a section to `MIGRATION.md`.
 4. Commit `chore(release): vX.Y.Z` on `main`.
 5. Run the pre-flight verification locally (`scripts/release.sh --dry-run vX.Y.Z`
-   does all of it, with the contract version CI pins):
+   does all of it, with the contract version CI pins, and refuses a tag
+   whose major.minor differs from that contract's, see
+   `scripts/check-contract-version.sh`):
    ```bash
    go vet ./...
    gofmt -l .

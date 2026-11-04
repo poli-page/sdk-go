@@ -7,6 +7,95 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-02
+
+Conformance with the Poli Page API contract v0.13.0
+([poli-page/api-contract](https://github.com/poli-page/api-contract)). The
+SDK now shares its major.minor with the Poli Page API, so it moves from 0.11
+to 0.13 (see [RELEASING.md](RELEASING.md#versions)). The module path stays
+`github.com/poli-page/sdk-go`. See
+[MIGRATION.md](MIGRATION.md#from-0110-to-0130).
+
+### Added
+
+- `invalid_response`: a 2xx answer whose body is not JSON, from a method that
+  expects JSON (`Render.Document`, the render call of `Render.PDF` and
+  `Render.PDFStream`, `Documents.Get`, `Documents.Thumbnails`), returns
+  `*Error` with `Code == ErrCodeInvalidResponse`, the message
+  `Invalid response: HTTP <status> body is not JSON`, the real 2xx as
+  `StatusCode`, the answer's `x-request-id` as `RequestID` and the
+  `*json.SyntaxError` as `Cause`. It is never retried, `IsRetryable()` is
+  `false`, and `OnError` fires with it. Such a body usually comes from a
+  proxy or a captive portal between your server and the API. New sentinel
+  `ErrInvalidResponse`.
+- `ToPayload()` answers `Status` 502 for `invalid_response`. The error's own
+  `StatusCode` keeps the real 2xx.
+- `scripts/release.sh` and a new Release workflow, run on a pushed `v*` tag,
+  check that the API contract pinned for the tests has the release's
+  major.minor (`scripts/check-contract-version.sh`). The workflow also checks
+  `internal/version.Version` and the CHANGELOG section against the tag.
+- `RELEASING.md`, with how SDK versions follow the API's.
+
+### Changed
+
+- **Breaking:** a 2xx whose body is not JSON was `INTERNAL_ERROR`
+  (`failed to decode response body: …`); it is now `invalid_response`
+  (above). Valid JSON of an unexpected shape is still `INTERNAL_ERROR`.
+- **Breaking:** `RenderToFile` failures to write the file were `io_failed`
+  (`ErrCodeIOFailed`, `ErrIOFailed`) with messages of their own; they are now
+  `io_error` (`ErrCodeIOError`, `ErrIOError`): no status, the message
+  `Failed to write PDF: <path>: <reason>` with the path the caller passed
+  (never the temporary file) and the `os` error's own text, for example
+  `Failed to write PDF: /out/invoice.pdf: permission denied`, that error as
+  `Cause`, never retried.
+- `RenderToFile` writes to a temporary file in the target's directory and
+  renames it over the target only once the PDF is complete. When anything
+  fails (the render, the download or the write), the target is left as it
+  was: an existing file keeps its content and a missing one is not created.
+  The directory and the temporary file are prepared before the render, so a
+  path that cannot be written costs no render.
+- `RenderToFile` follows a symbolic link (or a chain of them) to the file it
+  names and writes that file, so the link stays a link. An existing target
+  keeps its permission bits, without setuid, setgid or sticky; its owner and
+  group are not kept, and other hard
+  links to it keep the old content, since the PDF is a new file renamed into
+  place.
+- `RenderToFile` refuses an existing target that is not
+  writable (a read-only file) with `io_error`, before any API call. Before,
+  it failed on opening the file after the render.
+- **Breaking:** `RenderToFile` refuses an existing target that is not a
+  regular file (a directory, FIFO, socket or device such as `/dev/stdout`)
+  with `io_error` and the reason `not a regular file`, before any API call.
+  To write the PDF to a pipe or to stdout, copy `Render.PDFStream` into it.
+- A zero or negative `option.WithTimeout` / `option.WithRequestTimeout` sets
+  no SDK bound on an API attempt, as for the download: only the caller's
+  context bounds it. Before, every attempt timed out at once.
+- The presigned-URL download is bounded by the client's timeout
+  (`option.WithTimeout`, or the call's `option.WithRequestTimeout`), on top
+  of the caller's context: when the context has its own deadline, the first
+  bound to end wins. Before, `Render.PDF`,
+  `Render.PDFStream` and `RenderToFile` downloads had no SDK bound, and
+  `DownloadPDF` had one only with `option.WithDownloadTimeout`. For
+  `Render.PDF` and `DownloadPDF` the timeout bounds the whole download. For
+  `Render.PDFStream` and `RenderToFile` it is an idle timeout: the wait for
+  the storage's answer and for each read, so a large PDF read at the
+  caller's pace is not cut off. `option.WithDownloadTimeout(d)` still
+  overrides it for one `DownloadPDF` call, and `0` removes the bound.
+- A download that outlasts its timeout returns `DOWNLOAD_FAILED` with the
+  message `Failed to download PDF: timeout` (was
+  `Failed to download PDF: network error`). No status, not retryable. Only
+  the SDK's own timer gives this message: the caller's own deadline, or the
+  `Timeout` of an `*http.Client` passed with `option.WithHTTPClient`, still
+  gives `network error`.
+- Each API attempt's timeout (`option.WithTimeout`, `option.WithRequestTimeout`)
+  now applies on top of the caller's context deadline, and the first to end
+  wins. Before, a context with a deadline replaced the SDK's timeout, so a
+  long job deadline let one stalled attempt use all of it. The SDK's timeout
+  gives `Request timed out after <ms>ms` and is retried; the caller's own
+  deadline is still `timeout`, never retried.
+- `User-Agent` is `poli-page-sdk-go/0.13.0`.
+- CI runs the API contract v0.13.0.
+
 ## [0.11.0] - 2026-10-30
 
 Environments replace versions: an API key (`pp_{env}_…`) carries its

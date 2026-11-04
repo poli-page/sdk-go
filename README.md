@@ -83,7 +83,7 @@ err := polipage.RenderToFile(ctx, client, polipage.RenderInput{
 }, "./welcome.pdf")
 ```
 
-`RenderToFile` streams response bytes directly to disk (bounded memory). Parent directories are created on demand; existing files are overwritten.
+`RenderToFile` streams response bytes directly to disk (bounded memory). Parent directories are created on demand; an existing file is replaced. The PDF goes to a temporary file in the same directory, renamed over the target only once it is complete, so a failed render, download or write leaves the target untouched. When the path is a symbolic link, the file it points to is written and the link stays a link. An existing target keeps its permission bits (without setuid, setgid or sticky), but not its owner or group, and other hard links to it keep the old content (the PDF is a new file renamed into place). A read-only target, or one that is not a regular file (a directory, FIFO, socket or device such as `/dev/stdout`), is refused before any API call; to write to a pipe or stdout, copy `Render.PDFStream` into it. A file that cannot be written returns `Code == ErrCodeIOError` (`io_error`), with the message `Failed to write PDF: <path>: <reason>` (for example `Failed to write PDF: /out/invoice.pdf: permission denied`) and the `os` error as `Cause`; it is never retryable.
 
 ### Try it locally — runnable demo
 
@@ -125,6 +125,8 @@ defer body.Close()
 _, err = io.Copy(w, body)
 ```
 
+The PDF download is bounded by the client's timeout (`option.WithTimeout`, or `option.WithRequestTimeout` on the call), on top of `ctx`: when `ctx` has its own deadline, the first bound to end wins. For `Render.PDF` and `DownloadPDF` it bounds the whole download. For `PDFStream` it is an idle timeout: it bounds the wait for the storage's answer and each read, not the total, so a large PDF read at your own pace is not cut off. Past it, the call (or the stream's `Read`) returns `ErrCodeDownloadFailed` with the message `Failed to download PDF: timeout` and no status.
+
 ## Working with stored documents
 
 Every render produces a stored document, accessible via `documentId` for later download or thumbnails. `Render.PDF` and `Render.PDFStream` are conveniences that chain a presigned-URL fetch internally to return bytes; `Render.Document` returns just the descriptor (skip the auto-download when you'll fetch the bytes later).
@@ -156,7 +158,7 @@ thumbs, err := client.Documents.Thumbnails(ctx, doc.DocumentID, polipage.Thumbna
 err = client.Documents.Delete(ctx, doc.DocumentID)
 ```
 
-The presigned URL has a ~15-minute TTL. If `DownloadPDF` fails with `Code: ErrCodeDownloadFailed` (HTTP 403 from S3), call `Documents.Get(ctx, id)` to refresh and retry.
+The presigned URL has a ~15-minute TTL. If `DownloadPDF` fails with `Code: ErrCodeDownloadFailed` (HTTP 403 from S3), call `Documents.Get(ctx, id)` to refresh and retry. `DownloadPDF` is bounded by the client's timeout as a whole; pass `option.WithDownloadTimeout(d)` to use another bound (`0` for none).
 
 ## Authentication & environments
 
@@ -200,13 +202,13 @@ All options live in the [`option`](https://pkg.go.dev/github.com/poli-page/sdk-g
 | `option.WithBaseURL(url)`              | `string`                      | `https://api.poli.page` | API base URL |
 | `option.WithMaxRetries(n)`             | `int`                         | `2`                     | Retry budget on top of the initial attempt |
 | `option.WithRetryDelay(d)`             | `time.Duration`               | `500 * time.Millisecond`| Base exponential-backoff delay |
-| `option.WithTimeout(d)`                | `time.Duration`               | `60 * time.Second`      | Per-request fallback deadline (when ctx has none) |
+| `option.WithTimeout(d)`                | `time.Duration`               | `60 * time.Second`      | Timeout of each attempt, on top of ctx's deadline (first to end wins); also bounds the PDF download; `0` or less: no SDK bound |
 | `option.WithHTTPClient(c)`             | `*http.Client`                | new client               | Inject custom transport / TLS / middleware |
 | `option.WithLogger(l)`                 | `*slog.Logger`                | discard                  | One DEBUG/attempt, WARN/retry, ERROR/terminal |
 | `option.WithOnRetry(fn)`               | `func(polipage.RetryEvent)`   | nil                      | Fires before each retry sleep |
 | `option.WithOnError(fn)`               | `func(error)`                 | nil                      | Fires on terminal failure |
 | `option.WithIdempotencyKey(key)`       | `string`                      | UUID4                    | **Per-call** — override the auto-generated key |
-| `option.WithRequestTimeout(d)`         | `time.Duration`               | `WithTimeout` value      | **Per-call** — override per-request deadline (no-op if ctx has a deadline) |
+| `option.WithRequestTimeout(d)`         | `time.Duration`               | `WithTimeout` value      | **Per-call** — override the timeout for this call (still on top of ctx's deadline) |
 | `option.WithHeader(key, value)`        | `string, string`              | —                        | **Construction + per-call** — extra request header; per-call wins on duplicate keys |
 
 ## Error handling
@@ -260,6 +262,8 @@ if errors.As(err, &pErr) {
 
 Unknown codes from a newer API pass through verbatim in `pErr.Code`.
 
+A `2xx` answer whose body is not JSON (a proxy or captive portal page between your server and the API) returns `Code == ErrCodeInvalidResponse` (`invalid_response`) with the message `Invalid response: HTTP <status> body is not JSON`, the real `2xx` as `StatusCode` and the answer's `x-request-id` as `RequestID`. It is never retried. `pErr.ToPayload()`, the `{code, message, status, requestId}` body for framework integrations, answers `502` for it (and `503` for `network_error`, `504` for `timeout`), while `StatusCode` keeps the real status.
+
 ## Cancellation
 
 Pass a `context.Context` with a deadline or `cancel` to abort a render in flight:
@@ -271,7 +275,7 @@ defer cancel()
 pdf, err := client.Render.PDF(ctx, in)
 ```
 
-When the context is canceled, the SDK returns `*polipage.Error` with `Code == ErrCodeAborted`, also while the PDF is downloaded or streamed; when the deadline expires, `Code == ErrCodeTimeout`. Caller-aborted errors are never retried.
+When the context is canceled, the SDK returns `*polipage.Error` with `Code == ErrCodeAborted`, also while the PDF is downloaded or streamed; when the deadline expires, `Code == ErrCodeTimeout`, except during the PDF download, where it is `ErrCodeDownloadFailed` with `Failed to download PDF: network error` (`errors.Is(err, context.DeadlineExceeded)` still tells it apart). Caller-aborted errors are never retried.
 
 ## Observability
 

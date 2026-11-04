@@ -369,31 +369,39 @@ func defaultErrors(extra ...errorRow) []errorRow {
 		{"timeout", "Per-request deadline exceeded. Retryable."},
 		{"network_error", "TCP/TLS failure reaching the API. Retryable."},
 		{"INTERNAL_ERROR", "API returned 5xx. Retryable."},
+		{"invalid_response", "A 2xx answer whose body is not JSON (a proxy or captive portal page). Not retryable."},
 	}
 	return append(base, extra...)
 }
 
-func documentErrors() []errorRow {
-	return []errorRow{
+func documentErrors(extra ...errorRow) []errorRow {
+	base := []errorRow{
 		{"DOCUMENT_NOT_FOUND", "No stored document matches the supplied id."},
 		{"DOCUMENT_GONE", "The document was deleted or has expired."},
 		{"INVALID_API_KEY", "The API key is malformed or revoked."},
 		{"INTERNAL_ERROR", "API returned 5xx. Retryable."},
 	}
+	return append(base, extra...)
 }
+
+// invalidResponseRow is the error of the methods that expect a JSON answer.
+var invalidResponseRow = errorRow{"invalid_response", "A 2xx answer whose body is not JSON (a proxy or captive portal page). Not retryable."}
+
+// downloadFailedRow is the error of the methods that download the PDF.
+var downloadFailedRow = errorRow{"DOWNLOAD_FAILED", "Presigned URL fetch failed, or outlasted the timeout (`Failed to download PDF: timeout`). Not retryable."}
 
 var methodTargets = []methodTarget{
 	{
 		slug: "render-pdf", displayName: "Render.PDF",
 		receiver: "Render", method: "PDF",
 		exampleDir: "render-pdf",
-		errorCodes: defaultErrors(errorRow{"DOWNLOAD_FAILED", "Presigned URL fetch failed."}),
+		errorCodes: defaultErrors(downloadFailedRow),
 	},
 	{
 		slug: "render-pdf-stream", displayName: "Render.PDFStream",
 		receiver: "Render", method: "PDFStream",
 		exampleDir: "render-pdf-stream",
-		errorCodes: defaultErrors(errorRow{"DOWNLOAD_FAILED", "Presigned URL fetch failed."}),
+		errorCodes: defaultErrors(downloadFailedRow),
 	},
 	{
 		slug: "render-document", displayName: "Render.Document",
@@ -405,7 +413,7 @@ var methodTargets = []methodTarget{
 		slug: "documents-get", displayName: "Documents.Get",
 		receiver: "Documents", method: "Get",
 		exampleDir: "documents-get",
-		errorCodes: documentErrors(),
+		errorCodes: documentErrors(invalidResponseRow),
 	},
 	{
 		slug: "documents-preview", displayName: "Documents.Preview",
@@ -417,7 +425,7 @@ var methodTargets = []methodTarget{
 		slug: "documents-thumbnails", displayName: "Documents.Thumbnails",
 		receiver: "Documents", method: "Thumbnails",
 		exampleDir: "documents-thumbnails",
-		errorCodes: append(documentErrors(),
+		errorCodes: append(documentErrors(invalidResponseRow),
 			errorRow{"VALIDATION_ERROR", "A ThumbnailOptions value is out of range (width 50-2000, quality 1-100)."},
 			errorRow{"THUMBNAILS_NOT_AVAILABLE", "The organization's plan does not include thumbnails."}),
 	},
@@ -437,8 +445,8 @@ var methodTargets = []methodTarget{
 		slug: "render-to-file", displayName: "RenderToFile",
 		receiver: "", method: "RenderToFile",
 		exampleDir: "render-to-file",
-		errorCodes: append(defaultErrors(errorRow{"DOWNLOAD_FAILED", "Presigned URL fetch failed."}),
-			errorRow{"io_failed", "Local filesystem write failed."}),
+		errorCodes: append(defaultErrors(downloadFailedRow),
+			errorRow{"io_error", "The file could not be written, or the existing target is read-only or not a regular file (`Failed to write PDF: <path>: <reason>`); the target is left untouched. Not retryable."}),
 	},
 }
 
@@ -695,8 +703,9 @@ func renderErrorsPage() string {
 		{"network_error", "TCP/TLS-level failure reaching the API (`Network request failed`; the net/http error is the Cause). Retryable."},
 		{"timeout", "The request did not complete within the configured WithTimeout (`Request timed out after <ms>ms`). Retryable."},
 		{"aborted", "Caller context was cancelled, also during the PDF download (`Request was aborted`). Not retryable."},
-		{"io_failed", "Local filesystem write failed in RenderToFile."},
-		{"DOWNLOAD_FAILED", "Fetching a presigned PDF URL failed: `Failed to download PDF: HTTP <status>` with the storage status, or `Failed to download PDF: network error` without one, also when the connection drops while the body is read. Never retryable, whatever the storage status."},
+		{"invalid_response", "A 2xx API answer whose body is not JSON, usually a proxy or captive portal page (`Invalid response: HTTP <status> body is not JSON`, real 2xx status kept; ToPayload answers 502). Not retryable."},
+		{"io_error", "RenderToFile could not write the file, or the existing target is read-only or not a regular file (`Failed to write PDF: <path>: <reason>`, the os error is the Cause); the target is left untouched. Not retryable."},
+		{"DOWNLOAD_FAILED", "Fetching a presigned PDF URL failed: `Failed to download PDF: HTTP <status>` with the storage status, `Failed to download PDF: network error` without one (also when the connection drops while the body is read), or `Failed to download PDF: timeout` when the download outlasted the timeout. Never retryable, whatever the storage status."},
 	}
 	apiAuth := []row{
 		{"MISSING_API_KEY", "No API key in the request."},
@@ -836,7 +845,7 @@ func buildMetaSidecar() any {
 	}
 	codes := []string{
 		"invalid_options", "network_error", "timeout", "aborted",
-		"io_failed", "DOWNLOAD_FAILED",
+		"invalid_response", "io_error", "DOWNLOAD_FAILED",
 		"MISSING_API_KEY", "INVALID_API_KEY",
 		"FORBIDDEN", "ENVIRONMENT_PROTECTED", "ORGANIZATION_PAYMENT_GRACE",
 		"ORGANIZATION_CANCELLED", "ORGANIZATION_PURGED", "THUMBNAILS_NOT_AVAILABLE",

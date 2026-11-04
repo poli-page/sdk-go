@@ -5,6 +5,17 @@ description: Upgrade guides for the breaking changes between releases of the Go 
 
 This page tracks breaking changes between releases of `github.com/poli-page/sdk-go`. Before 1.0, a breaking change bumps the minor version. For the full per-release diff, see the [changelog](../changelog/).
 
+## From 0.11.0 to 0.13.0
+
+0.12 was never released for Go: the SDK now shares its major.minor with the Poli Page API, and 0.13.0 passes the API contract v0.13.0. The module path does not change.
+
+- `ErrCodeIOFailed` (`io_failed`) and `ErrIOFailed` are renamed `ErrCodeIOError` (`io_error`) and `ErrIOError`. A `RenderToFile` write failure has the message `Failed to write PDF: <path>: <reason>`, and no longer leaves a partial file: the target keeps its previous content, or is not created. A symbolic link is written through and stays a link; an existing target keeps its permission bits (without setuid, setgid or sticky), not its owner or group, and other hard links keep the old content. A read-only target, or one that is not a regular file (a directory, FIFO, socket or device such as `/dev/stdout`), is refused before any API call: to write to a pipe or stdout, copy `Render.PDFStream` into it.
+- Each API attempt's timeout now composes with the caller's context deadline: the shorter of the SDK timeout and the caller's deadline wins. Before, a context with a deadline replaced the SDK timeout. A zero or negative timeout sets no SDK bound.
+- A 2xx answer whose body is not JSON (a proxy or captive portal page) was `INTERNAL_ERROR`; it is now `invalid_response` (`ErrInvalidResponse`), with the real status in `StatusCode` and `502` in `ToPayload().Status`. It is never retried.
+- The PDF download is bounded by the client's timeout (`option.WithTimeout`, or the call's `option.WithRequestTimeout`): the whole download for `Render.PDF` and `DownloadPDF`, each read for `Render.PDFStream`. Past it, the error is `DOWNLOAD_FAILED` with the message `Failed to download PDF: timeout`. `option.WithDownloadTimeout(0)` removes the bound for one `DownloadPDF` call.
+
+The full list is in [`CHANGELOG.md`](https://github.com/poli-page/sdk-go/blob/main/CHANGELOG.md) and [`MIGRATION.md`](https://github.com/poli-page/sdk-go/blob/main/MIGRATION.md).
+
 ## From 0.9.x to 0.11.0
 
 0.10.0 was never released for Go: 0.11.0 follows 0.9.0 and carries both groups of changes below.

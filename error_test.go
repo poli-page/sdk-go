@@ -243,7 +243,7 @@ func TestErrorCodes_constantSetMatchesContract(t *testing.T) {
 	}
 	want := []string{
 		// SDK-internal.
-		"invalid_options", "network_error", "timeout", "aborted", "unknown_error", "DOWNLOAD_FAILED", "io_failed",
+		"invalid_options", "network_error", "timeout", "aborted", "unknown_error", "DOWNLOAD_FAILED", "invalid_response", "io_error",
 		// API codes kept from 0.9.
 		"MISSING_API_KEY", "INVALID_API_KEY", "ORGANIZATION_CANCELLED", "ORGANIZATION_PURGED", "FORBIDDEN",
 		"VALIDATION_ERROR", "MISSING_DATA", "MISSING_TEMPLATE_SLUG", "PROJECT_REQUIRED_FOR_DOCUMENT",

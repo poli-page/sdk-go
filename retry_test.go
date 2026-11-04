@@ -426,3 +426,101 @@ func TestRetry_cancelWhileReadingAnswerBodyIsAborted(t *testing.T) {
 		t.Errorf("attempts=%d retries=%d responses=%d server calls=%d, want 1, 0, 0, 1", a, r, o, c)
 	}
 }
+
+// The attempt timeout and the caller's ctx compose: the first bound to end
+// wins, and only the SDK's own timer gives "Request timed out after <ms>ms".
+func TestTimeout_attemptTimeoutWinsOverALaterCallerDeadline(t *testing.T) {
+	t.Parallel()
+	var calls atomic.Int32
+	hang := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		<-r.Context().Done()
+	}))
+	t.Cleanup(hang.Close)
+	client := newTestClient(t, hang, option.WithTimeout(150*time.Millisecond), option.WithMaxRetries(1))
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	start := time.Now()
+	_, err := client.Documents.Get(ctx, "doc_1")
+	elapsed := time.Since(start)
+	var pErr *polipage.Error
+	if !errors.As(err, &pErr) || pErr.Code != polipage.ErrCodeTimeout || pErr.Message != "Request timed out after 150ms" {
+		t.Fatalf("err = %v, want timeout \"Request timed out after 150ms\"", err)
+	}
+	if !pErr.IsRetryable() || calls.Load() != 2 {
+		t.Errorf("IsRetryable() = %v, attempts = %d; want true and 2 (the SDK timeout is retried)", pErr.IsRetryable(), calls.Load())
+	}
+	if elapsed > 2*time.Second {
+		t.Errorf("the call took %v, want it ended by the 150 ms attempt timeouts, well before the 3 s deadline", elapsed)
+	}
+}
+
+func TestTimeout_earlierCallerDeadlineIsNotTheSDKTimeout(t *testing.T) {
+	t.Parallel()
+	var calls atomic.Int32
+	hang := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		<-r.Context().Done()
+	}))
+	t.Cleanup(hang.Close)
+	client := newTestClient(t, hang, option.WithTimeout(time.Minute), option.WithMaxRetries(2))
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+	_, err := client.Documents.Get(ctx, "doc_1")
+	var pErr *polipage.Error
+	if !errors.As(err, &pErr) || pErr.Code != polipage.ErrCodeTimeout {
+		t.Fatalf("err = %v, want Code=timeout", err)
+	}
+	if pErr.Message != "request deadline exceeded" {
+		t.Errorf("Message = %q, want the caller's deadline, not the SDK's timeout message", pErr.Message)
+	}
+	if calls.Load() != 1 {
+		t.Errorf("attempts = %d, want 1: the caller's deadline is not retried", calls.Load())
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("errors.Is(err, context.DeadlineExceeded) = false for %v", err)
+	}
+}
+
+func TestTimeout_callerCancelWithADeadlineIsAborted(t *testing.T) {
+	t.Parallel()
+	hang := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	t.Cleanup(hang.Close)
+	client := newTestClient(t, hang, option.WithTimeout(time.Minute))
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	time.AfterFunc(100*time.Millisecond, cancel)
+	_, err := client.Documents.Get(ctx, "doc_1")
+	var pErr *polipage.Error
+	if !errors.As(err, &pErr) || pErr.Code != polipage.ErrCodeAborted {
+		t.Fatalf("err = %v, want Code=aborted", err)
+	}
+}
+
+// A zero timeout sets no SDK bound on an attempt: only the caller's ctx does.
+func TestTimeout_zeroTimeoutLeavesTheAttemptToTheCallerContext(t *testing.T) {
+	t.Parallel()
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-time.After(50 * time.Millisecond):
+		case <-r.Context().Done():
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, canonicalDescriptorJSON())
+	}))
+	t.Cleanup(slow.Close)
+	for name, timeout := range map[string]time.Duration{"zero": 0, "negative": -time.Second} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			client := newTestClient(t, slow, option.WithTimeout(timeout), option.WithMaxRetries(0))
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if _, err := client.Documents.Get(ctx, "doc_1"); err != nil {
+				t.Fatalf("Get err = %v, want success: a timeout of %v sets no SDK bound", err, timeout)
+			}
+		})
+	}
+}

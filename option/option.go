@@ -68,8 +68,18 @@ func WithRetryDelay(d time.Duration) RequestOption {
 	}
 }
 
-// WithTimeout sets the per-request fallback deadline. Only applies when
-// the caller's context has no deadline of its own. Default 60s.
+// WithTimeout sets the timeout of each API attempt. Default 60s. It applies
+// on top of the caller's context: when the context has its own deadline, the
+// first to end wins. Only this timeout gives the timeout error's message
+// "Request timed out after <ms>ms"; the caller's own deadline is a timeout
+// too, but is never retried. A zero or negative d sets no SDK bound: only
+// the caller's context bounds the attempts and the download.
+//
+// The same value bounds the presigned PDF download: the whole download for
+// Render.PDF and DownloadPDF, an idle timeout (the wait for the storage's
+// answer and for each read) for Render.PDFStream and RenderToFile. The
+// download bound applies on top of the caller's context: the first bound to
+// end wins.
 func WithTimeout(d time.Duration) RequestOption {
 	return func(c *clientconfig.Config) error {
 		c.Timeout = d
@@ -158,8 +168,9 @@ func WithIdempotencyKey(key string) RequestOption {
 
 // WithRequestTimeout overrides the per-request deadline for a single call.
 // Pass as the last argument to any method to override the client-wide
-// [WithTimeout] for that call only. When the caller's context already has
-// a deadline, this override is ignored — context wins.
+// [WithTimeout] for that call only, the PDF download of Render.PDF and
+// Render.PDFStream included. It applies on top of the caller's context: when
+// the context has its own deadline, the first to end wins.
 //
 // Setting WithRequestTimeout at construction time also adjusts the client
 // default, identically to [WithTimeout].
@@ -198,15 +209,17 @@ type DownloadOption func(*DownloadConfig)
 // (*DocumentDescriptor).DownloadPDF. Exposed in the option package so
 // future options compose cleanly.
 type DownloadConfig struct {
-	// Timeout overrides the per-download deadline. 0 means use the
-	// caller's context as-is (no SDK-imposed timeout).
+	// Timeout bounds the whole download, on top of the caller's context.
+	// It starts as the client's [WithTimeout]; zero or negative means no
+	// SDK-imposed timeout (the caller's context as-is).
 	Timeout time.Duration
 }
 
-// WithDownloadTimeout sets a per-download deadline. Useful when the caller
-// wants to bound an S3 fetch independently of the API-call timeout. When
-// the caller's ctx already has a deadline, this override is ignored —
-// context wins, identical to [WithRequestTimeout].
+// WithDownloadTimeout sets the deadline of one DownloadPDF call, in place of
+// the client's [WithTimeout], which bounds it otherwise. Useful when the
+// caller wants to bound an S3 fetch independently of the API-call timeout;
+// 0 removes the SDK-imposed bound. It applies on top of the caller's ctx:
+// when ctx has a deadline or is canceled, the first bound to end wins.
 func WithDownloadTimeout(d time.Duration) DownloadOption {
 	return func(c *DownloadConfig) {
 		c.Timeout = d

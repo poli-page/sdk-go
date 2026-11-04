@@ -42,8 +42,9 @@ const (
 	// retry waits ~DefaultRetryDelay × jitter, the second ~2×, etc.
 	DefaultRetryDelay = 500 * time.Millisecond
 
-	// DefaultTimeout is the per-request fallback deadline applied when the
-	// caller's context has no deadline of its own.
+	// DefaultTimeout is the timeout of each API attempt and of the PDF
+	// download, applied on top of the caller's context deadline (the first
+	// to end wins).
 	DefaultTimeout = 60 * time.Second
 )
 
@@ -218,16 +219,16 @@ func (c *Client) sendOnce(ctx context.Context, method, path string, bodyBytes []
 	if per.Timeout > 0 {
 		timeout = per.Timeout
 	}
-	attemptCtx := ctx
-	var cancel context.CancelFunc
-	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
-		attemptCtx, cancel = context.WithTimeout(ctx, timeout)
+	// The attempt timeout applies on top of the caller's ctx: whichever ends
+	// first ends the attempt. Only errAttemptTimeout as the attempt's cause
+	// says the SDK's own timer fired; the caller's deadline or cancel is
+	// mapped from ctx instead. A zero or negative timeout sets no SDK bound,
+	// as for the download: only ctx bounds the attempt.
+	attemptCtx, cleanup := ctx, context.CancelFunc(func() {})
+	if timeout > 0 {
+		attemptCtx, cleanup = context.WithTimeoutCause(ctx, timeout, errAttemptTimeout)
 	}
-	cleanup := func() {
-		if cancel != nil {
-			cancel()
-		}
-	}
+	sdkTimedOut := func() bool { return errors.Is(context.Cause(attemptCtx), errAttemptTimeout) }
 
 	url := httpx.BuildURL(c.cfg.BaseURL, path)
 	var body io.Reader
@@ -274,13 +275,18 @@ func (c *Client) sendOnce(ctx context.Context, method, path string, bodyBytes []
 
 	resp, err := c.cfg.HTTPClient.Do(req)
 	if err != nil {
+		timedOut := sdkTimedOut()
 		cleanup()
+		// The messages are the SDK specification's exact texts; the
+		// transport error stays available as Cause.
+		if timedOut {
+			return nil, retryAfter{}, true, &Error{Code: ErrCodeTimeout, Message: timeoutMessage(timeout), Cause: err}
+		}
 		if ctx.Err() != nil {
 			return nil, retryAfter{}, false, mapContextError(ctx.Err())
 		}
-		// The messages are the SDK specification's exact texts; the
-		// transport error stays available as Cause.
 		if errors.Is(err, context.DeadlineExceeded) {
+			// A deadline of the caller's own *http.Client (its Timeout).
 			return nil, retryAfter{}, true, &Error{Code: ErrCodeTimeout, Message: timeoutMessage(timeout), Cause: err}
 		}
 		return nil, retryAfter{}, true, &Error{Code: ErrCodeNetworkError, Message: "Network request failed", Cause: err}
@@ -289,13 +295,16 @@ func (c *Client) sendOnce(ctx context.Context, method, path string, bodyBytes []
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		data, readErr := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
-		timedOut := errors.Is(attemptCtx.Err(), context.DeadlineExceeded)
+		timedOut := sdkTimedOut()
 		cleanup()
 		if readErr != nil {
+			if timedOut {
+				return nil, retryAfter{}, true, &Error{Code: ErrCodeTimeout, Message: timeoutMessage(timeout), Cause: readErr}
+			}
 			if ctx.Err() != nil {
 				return nil, retryAfter{}, false, mapContextError(ctx.Err())
 			}
-			if timedOut || errors.Is(readErr, context.DeadlineExceeded) {
+			if errors.Is(readErr, context.DeadlineExceeded) {
 				return nil, retryAfter{}, true, &Error{Code: ErrCodeTimeout, Message: timeoutMessage(timeout), Cause: readErr}
 			}
 			return nil, retryAfter{}, true, &Error{Code: ErrCodeNetworkError, Message: "Network request failed", Cause: readErr}
@@ -348,12 +357,45 @@ func (c *Client) sendOnce(ctx context.Context, method, path string, bodyBytes []
 	return nil, after, retryable, apiErr
 }
 
-// bodyReadError maps a failure decoding a 2xx API body, which sendOnce has
-// already read in full: ErrCodeInternalError with the answer's status.
-// Cause wraps err.
+// bodyReadError maps a failure reading or decoding a 2xx API body, which
+// sendOnce has already read in full: ErrCodeInternalError with the answer's
+// status. Cause wraps err.
 func bodyReadError(status int, what string, err error) *Error {
 	return &Error{Code: ErrCodeInternalError, StatusCode: status, Message: what + err.Error(), Cause: err}
 }
+
+// decodeJSON decodes the body of a 2xx API answer into v. A body that is not
+// JSON at all (an HTML page from a proxy or a captive portal, an empty body)
+// is ErrCodeInvalidResponse with the real status and the answer's
+// x-request-id, never retried, and reported to OnError; the syntax error is
+// wrapped in Cause. Valid JSON of the wrong shape keeps ErrCodeInternalError.
+func (c *Client) decodeJSON(resp *http.Response, v any) *Error {
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return bodyReadError(resp.StatusCode, "failed to read response body: ", err)
+	}
+	err = json.Unmarshal(data, v)
+	if err == nil {
+		return nil
+	}
+	if !json.Valid(data) {
+		invalid := &Error{
+			Code:       ErrCodeInvalidResponse,
+			StatusCode: resp.StatusCode,
+			Message:    fmt.Sprintf("Invalid response: HTTP %d body is not JSON", resp.StatusCode),
+			RequestID:  resp.Header.Get(constants.HeaderRequestID),
+			Cause:      err,
+		}
+		c.fireOnError(invalid)
+		return invalid
+	}
+	return bodyReadError(resp.StatusCode, "failed to decode response body: ", err)
+}
+
+// errAttemptTimeout is the cause an API attempt's own timer cancels its
+// context with, so a timeout is told apart from the caller's deadline. It
+// wraps context.DeadlineExceeded for errors.Is.
+var errAttemptTimeout = fmt.Errorf("polipage: attempt timeout: %w", context.DeadlineExceeded)
 
 // timeoutMessage is the timeout error's message: the attempt's timeout in
 // whole milliseconds.
