@@ -446,7 +446,7 @@ var methodTargets = []methodTarget{
 		receiver: "", method: "RenderToFile",
 		exampleDir: "render-to-file",
 		errorCodes: append(defaultErrors(downloadFailedRow),
-			errorRow{"io_error", "The file could not be written (`Failed to write PDF: <reason>`); the target is left untouched. Not retryable."}),
+			errorRow{"io_error", "The file could not be written, or the existing target is read-only (`Failed to write PDF: <path>: <reason>`); the target is left untouched. Not retryable."}),
 	},
 }
 
@@ -704,7 +704,7 @@ func renderErrorsPage() string {
 		{"timeout", "The request did not complete within the configured WithTimeout (`Request timed out after <ms>ms`). Retryable."},
 		{"aborted", "Caller context was cancelled, also during the PDF download (`Request was aborted`). Not retryable."},
 		{"invalid_response", "A 2xx API answer whose body is not JSON, usually a proxy or captive portal page (`Invalid response: HTTP <status> body is not JSON`, real 2xx status kept; ToPayload answers 502). Not retryable."},
-		{"io_error", "RenderToFile could not write the file (`Failed to write PDF: <reason>`, the os error is the Cause); the target is left untouched. Not retryable."},
+		{"io_error", "RenderToFile could not write the file, or the existing target is read-only (`Failed to write PDF: <path>: <reason>`, the os error is the Cause); the target is left untouched. Not retryable."},
 		{"DOWNLOAD_FAILED", "Fetching a presigned PDF URL failed: `Failed to download PDF: HTTP <status>` with the storage status, `Failed to download PDF: network error` without one (also when the connection drops while the body is read), or `Failed to download PDF: timeout` when the download outlasted the timeout. Never retryable, whatever the storage status."},
 	}
 	apiAuth := []row{

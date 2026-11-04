@@ -39,7 +39,7 @@ Here the timeout is an idle timeout: it bounds the wait for the storage's answer
 
 ## Write to file (`RenderToFile`)
 
-The top-level `RenderToFile` helper streams bytes directly to disk with bounded memory. Parent directories are created automatically. The PDF is written to a temporary file in the same directory and renamed over the target only once complete, so a failed render, download or write leaves the target untouched. A file that cannot be written returns `io_error` with the message `Failed to write PDF: <reason>`.
+The top-level `RenderToFile` helper streams bytes directly to disk with bounded memory. Parent directories are created automatically. The PDF is written to a temporary file in the same directory and renamed over the target only once complete, so a failed render, download or write leaves the target untouched. When the path is a symbolic link, the file it points to is written and the link stays a link. An existing target keeps its permission bits, but not its owner or group, and other hard links to it keep the old content (the PDF is a new file renamed into place). A read-only target is refused before any API call. A file that cannot be written returns `io_error` with the message `Failed to write PDF: <path>: <reason>`, for example `Failed to write PDF: /out/invoice.pdf: permission denied`.
 
 ```go
 err := polipage.RenderToFile(

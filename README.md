@@ -83,7 +83,7 @@ err := polipage.RenderToFile(ctx, client, polipage.RenderInput{
 }, "./welcome.pdf")
 ```
 
-`RenderToFile` streams response bytes directly to disk (bounded memory). Parent directories are created on demand; an existing file is replaced. The PDF goes to a temporary file in the same directory, renamed over the target only once it is complete, so a failed render, download or write leaves the target untouched. A file that cannot be written returns `Code == ErrCodeIOError` (`io_error`), with the message `Failed to write PDF: <reason>` and the `os` error as `Cause`; it is never retryable.
+`RenderToFile` streams response bytes directly to disk (bounded memory). Parent directories are created on demand; an existing file is replaced. The PDF goes to a temporary file in the same directory, renamed over the target only once it is complete, so a failed render, download or write leaves the target untouched. When the path is a symbolic link, the file it points to is written and the link stays a link. An existing target keeps its permission bits, but not its owner or group, and other hard links to it keep the old content (the PDF is a new file renamed into place). A read-only target is refused before any API call. A file that cannot be written returns `Code == ErrCodeIOError` (`io_error`), with the message `Failed to write PDF: <path>: <reason>` (for example `Failed to write PDF: /out/invoice.pdf: permission denied`) and the `os` error as `Cause`; it is never retryable.
 
 ### Try it locally — runnable demo
 

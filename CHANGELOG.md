@@ -44,14 +44,24 @@ to 0.13 (see [RELEASING.md](RELEASING.md#versions)). The module path stays
 - **Breaking:** `RenderToFile` failures to write the file were `io_failed`
   (`ErrCodeIOFailed`, `ErrIOFailed`) with messages of their own; they are now
   `io_error` (`ErrCodeIOError`, `ErrIOError`): no status, the message
-  `Failed to write PDF: <reason>` with the `os` error's own text, that error
-  as `Cause`, never retried.
+  `Failed to write PDF: <path>: <reason>` with the path the caller passed
+  (never the temporary file) and the `os` error's own text, for example
+  `Failed to write PDF: /out/invoice.pdf: permission denied`, that error as
+  `Cause`, never retried.
 - `RenderToFile` writes to a temporary file in the target's directory and
   renames it over the target only once the PDF is complete. When anything
   fails (the render, the download or the write), the target is left as it
   was: an existing file keeps its content and a missing one is not created.
   The directory and the temporary file are prepared before the render, so a
   path that cannot be written costs no render.
+- `RenderToFile` follows a symbolic link (or a chain of them) to the file it
+  names and writes that file, so the link stays a link. An existing target
+  keeps its permission bits; its owner and group are not kept, and other hard
+  links to it keep the old content, since the PDF is a new file renamed into
+  place.
+- `RenderToFile` refuses an existing target that is not
+  writable (a read-only file) with `io_error`, before any API call. Before,
+  it failed on opening the file after the render.
 - The presigned-URL download is bounded by the client's timeout
   (`option.WithTimeout`, or the call's `option.WithRequestTimeout`), on top
   of the caller's context: when the context has its own deadline, the first
