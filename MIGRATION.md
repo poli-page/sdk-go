@@ -14,7 +14,9 @@ does not change.
 | 0.11.0 | 0.13.0 |
 | --- | --- |
 | `ErrCodeIOFailed` (`io_failed`), `ErrIOFailed` | `ErrCodeIOError` (`io_error`), `ErrIOError` |
-| `RenderToFile` write failures: `failed to create directory: …`, `failed to create file: …`, `failed to write file: …` | `Failed to write PDF: <os error>` |
+| `RenderToFile` write failures: `failed to create directory: …`, `failed to create file: …`, `failed to write file: …` | `Failed to write PDF: <path>: <reason>`, e.g. `Failed to write PDF: /out/invoice.pdf: permission denied` |
+| `RenderToFile` on a read-only target: fails after the render | `io_error` before any API call |
+| An API attempt under a ctx with a deadline: the deadline replaced `option.WithTimeout` | the shorter of the SDK timeout and the caller's deadline wins |
 | A 2xx whose body is not JSON: `INTERNAL_ERROR`, `failed to decode response body: …` | `invalid_response` (`ErrCodeInvalidResponse`, `ErrInvalidResponse`), `Invalid response: HTTP <status> body is not JSON` |
 | A download past its timeout: `Failed to download PDF: network error` | `Failed to download PDF: timeout` (still `DOWNLOAD_FAILED`, no status) |
 | `Render.PDF`, `Render.PDFStream`, `RenderToFile` downloads: no SDK timeout | bounded by `option.WithTimeout` / `option.WithRequestTimeout` |
@@ -32,7 +34,10 @@ if errors.Is(err, polipage.ErrIOError) { … }
 
 The `os` error is still the `Cause`, so `errors.As(err, &pathErr)` with an
 `*os.PathError` works as before. A failed `RenderToFile` no longer leaves a
-partial file: the target keeps its previous content, or is not created.
+partial file: the target keeps its previous content, or is not created. A
+symbolic link is written through and stays a link; an existing target keeps
+its permission bits, not its owner or group, and other hard links to it keep
+the old content. A read-only target is refused before any API call.
 
 ### A non-JSON 2xx is `invalid_response`
 
@@ -51,6 +56,24 @@ raise `option.WithTimeout`, pass `option.WithDownloadTimeout` to
 read rather than to the whole download. A context with its own deadline
 no longer replaces the SDK's timeout for the download: the first bound to
 end wins.
+
+### The SDK timeout and a context deadline compose
+
+The same holds for each API attempt: the shorter of the SDK timeout
+(`option.WithTimeout`, `option.WithRequestTimeout`) and the caller's
+deadline wins. Before, a context with a deadline replaced the SDK timeout,
+so one stalled attempt could use all of it. When the SDK timeout fires, the
+error is `timeout` with `Request timed out after <ms>ms` and is retried; when
+the caller's deadline fires, it is `timeout` too but is not retried, as
+before.
+
+```go
+// 0.13.0: each attempt stops after 10 s, the whole call after 2 min.
+client := polipage.NewClient(option.WithAPIKey(key), option.WithTimeout(10*time.Second))
+ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+defer cancel()
+doc, err := client.Render.Document(ctx, in)
+```
 
 ## From 0.9.x to 0.11.0
 
