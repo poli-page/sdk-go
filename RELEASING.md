@@ -15,7 +15,7 @@ Both `scripts/release.sh` and the Release workflow refuse a tag whose
 major.minor differs from the contract version pinned in
 `.github/workflows/ci.yml`. A Go release is the pushed tag itself, so
 `scripts/release.sh` is the gate; the workflow re-checks the tag once it is
-pushed.
+pushed, then creates the GitHub Release from the CHANGELOG section.
 
 ## Steps
 
