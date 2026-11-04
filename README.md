@@ -83,7 +83,7 @@ err := polipage.RenderToFile(ctx, client, polipage.RenderInput{
 }, "./welcome.pdf")
 ```
 
-`RenderToFile` streams response bytes directly to disk (bounded memory). Parent directories are created on demand; an existing file is replaced. The PDF goes to a temporary file in the same directory, renamed over the target only once it is complete, so a failed render, download or write leaves the target untouched. When the path is a symbolic link, the file it points to is written and the link stays a link. An existing target keeps its permission bits, but not its owner or group, and other hard links to it keep the old content (the PDF is a new file renamed into place). A read-only target is refused before any API call. A file that cannot be written returns `Code == ErrCodeIOError` (`io_error`), with the message `Failed to write PDF: <path>: <reason>` (for example `Failed to write PDF: /out/invoice.pdf: permission denied`) and the `os` error as `Cause`; it is never retryable.
+`RenderToFile` streams response bytes directly to disk (bounded memory). Parent directories are created on demand; an existing file is replaced. The PDF goes to a temporary file in the same directory, renamed over the target only once it is complete, so a failed render, download or write leaves the target untouched. When the path is a symbolic link, the file it points to is written and the link stays a link. An existing target keeps its permission bits (without setuid, setgid or sticky), but not its owner or group, and other hard links to it keep the old content (the PDF is a new file renamed into place). A read-only target, or one that is not a regular file (a directory, FIFO, socket or device such as `/dev/stdout`), is refused before any API call; to write to a pipe or stdout, copy `Render.PDFStream` into it. A file that cannot be written returns `Code == ErrCodeIOError` (`io_error`), with the message `Failed to write PDF: <path>: <reason>` (for example `Failed to write PDF: /out/invoice.pdf: permission denied`) and the `os` error as `Cause`; it is never retryable.
 
 ### Try it locally — runnable demo
 
@@ -202,7 +202,7 @@ All options live in the [`option`](https://pkg.go.dev/github.com/poli-page/sdk-g
 | `option.WithBaseURL(url)`              | `string`                      | `https://api.poli.page` | API base URL |
 | `option.WithMaxRetries(n)`             | `int`                         | `2`                     | Retry budget on top of the initial attempt |
 | `option.WithRetryDelay(d)`             | `time.Duration`               | `500 * time.Millisecond`| Base exponential-backoff delay |
-| `option.WithTimeout(d)`                | `time.Duration`               | `60 * time.Second`      | Timeout of each attempt, on top of ctx's deadline (first to end wins); also bounds the PDF download |
+| `option.WithTimeout(d)`                | `time.Duration`               | `60 * time.Second`      | Timeout of each attempt, on top of ctx's deadline (first to end wins); also bounds the PDF download; `0` or less: no SDK bound |
 | `option.WithHTTPClient(c)`             | `*http.Client`                | new client               | Inject custom transport / TLS / middleware |
 | `option.WithLogger(l)`                 | `*slog.Logger`                | discard                  | One DEBUG/attempt, WARN/retry, ERROR/terminal |
 | `option.WithOnRetry(fn)`               | `func(polipage.RetryEvent)`   | nil                      | Fires before each retry sleep |

@@ -11,6 +11,10 @@ import (
 	"syscall"
 )
 
+// errNotRegularFile is the reason RenderToFile refuses an existing target
+// that is not a regular file.
+var errNotRegularFile = errors.New("not a regular file")
+
 // maxSymlinkHops bounds the symlinks RenderToFile follows to find the file it
 // writes, so a link loop fails instead of spinning.
 const maxSymlinkHops = 40
@@ -28,11 +32,14 @@ const maxSymlinkHops = 40
 // prepared before the render, so a path that cannot be written costs no
 // render.
 //
-// An existing target keeps its permission bits. Because the PDF replaces it
-// with a new file, its owner and group become those of the calling process,
-// and other hard links to it keep the old content. An existing target that
-// is not writable (a read-only file) is not replaced: RenderToFile fails
-// before any API call.
+// An existing target keeps its permission bits, without setuid, setgid or
+// sticky. Because the PDF replaces it with a new file, its owner and group
+// become those of the calling process, and other hard links to it keep the
+// old content. An existing target that is not writable (a read-only file) or
+// not a regular file (a directory, FIFO, socket or device such as
+// /dev/stdout) is not replaced: RenderToFile fails before any API call, with
+// the reason "not a regular file" for the latter. To write the PDF to a pipe
+// or to stdout, copy [Render.PDFStream] into it instead.
 //
 // Errors from the render call and the download propagate as-is (typed
 // *Error, see [Render.PDFStream]). A file that cannot be written surfaces as
@@ -53,9 +60,11 @@ func RenderToFile(ctx context.Context, c *Client, in RenderInput, path string) e
 	// on it before the rename, a new target gets the usual 0644.
 	mode := fs.FileMode(0o644)
 	switch info, err := os.Stat(target); {
-	case err == nil && info.IsDir():
-		return writeError(path, &fs.PathError{Op: "open", Path: target, Err: syscall.EISDIR})
-	case err == nil && info.Mode().IsRegular():
+	case err == nil && !info.Mode().IsRegular():
+		// A directory, FIFO, socket or device: judged by its attributes,
+		// never opened, and never replaced by the rename.
+		return writeError(path, &fs.PathError{Op: "open", Path: target, Err: errNotRegularFile})
+	case err == nil:
 		// Opened for writing, not truncated: a read-only target is refused
 		// here, before the render, rather than replaced by the rename.
 		f, err := os.OpenFile(target, os.O_WRONLY, 0)

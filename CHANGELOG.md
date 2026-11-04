@@ -56,12 +56,20 @@ to 0.13 (see [RELEASING.md](RELEASING.md#versions)). The module path stays
   path that cannot be written costs no render.
 - `RenderToFile` follows a symbolic link (or a chain of them) to the file it
   names and writes that file, so the link stays a link. An existing target
-  keeps its permission bits; its owner and group are not kept, and other hard
+  keeps its permission bits, without setuid, setgid or sticky; its owner and
+  group are not kept, and other hard
   links to it keep the old content, since the PDF is a new file renamed into
   place.
 - `RenderToFile` refuses an existing target that is not
   writable (a read-only file) with `io_error`, before any API call. Before,
   it failed on opening the file after the render.
+- **Breaking:** `RenderToFile` refuses an existing target that is not a
+  regular file (a directory, FIFO, socket or device such as `/dev/stdout`)
+  with `io_error` and the reason `not a regular file`, before any API call.
+  To write the PDF to a pipe or to stdout, copy `Render.PDFStream` into it.
+- A zero or negative `option.WithTimeout` / `option.WithRequestTimeout` sets
+  no SDK bound on an API attempt, as for the download: only the caller's
+  context bounds it. Before, every attempt timed out at once.
 - The presigned-URL download is bounded by the client's timeout
   (`option.WithTimeout`, or the call's `option.WithRequestTimeout`), on top
   of the caller's context: when the context has its own deadline, the first

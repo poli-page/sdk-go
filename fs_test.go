@@ -132,7 +132,10 @@ func TestRenderToFile_directoryTargetIsIOErrorWithoutRendering(t *testing.T) {
 	}
 
 	err := renderToFile(client, dst)
-	_ = wantIOErrorNaming(t, err, dst)
+	pErr := wantIOErrorNaming(t, err, dst)
+	if want := "Failed to write PDF: " + dst + ": not a regular file"; pErr.Message != want {
+		t.Errorf("Message = %q, want %q", pErr.Message, want)
+	}
 	if info, statErr := os.Stat(dst); statErr != nil || !info.IsDir() {
 		t.Errorf("target changed: %v, %v", info, statErr)
 	}

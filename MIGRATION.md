@@ -16,6 +16,8 @@ does not change.
 | `ErrCodeIOFailed` (`io_failed`), `ErrIOFailed` | `ErrCodeIOError` (`io_error`), `ErrIOError` |
 | `RenderToFile` write failures: `failed to create directory: …`, `failed to create file: …`, `failed to write file: …` | `Failed to write PDF: <path>: <reason>`, e.g. `Failed to write PDF: /out/invoice.pdf: permission denied` |
 | `RenderToFile` on a read-only target: fails after the render | `io_error` before any API call |
+| `RenderToFile` to a FIFO, socket or device (`/dev/stdout`): written through | `io_error`, `not a regular file`, before any API call: copy `Render.PDFStream` into it instead |
+| `option.WithTimeout(0)`: every attempt timed out at once | no SDK bound: only the caller's context bounds the call |
 | An API attempt under a ctx with a deadline: the deadline replaced `option.WithTimeout` | the shorter of the SDK timeout and the caller's deadline wins |
 | A 2xx whose body is not JSON: `INTERNAL_ERROR`, `failed to decode response body: …` | `invalid_response` (`ErrCodeInvalidResponse`, `ErrInvalidResponse`), `Invalid response: HTTP <status> body is not JSON` |
 | A download past its timeout: `Failed to download PDF: network error` | `Failed to download PDF: timeout` (still `DOWNLOAD_FAILED`, no status) |
@@ -36,8 +38,22 @@ The `os` error is still the `Cause`, so `errors.As(err, &pathErr)` with an
 `*os.PathError` works as before. A failed `RenderToFile` no longer leaves a
 partial file: the target keeps its previous content, or is not created. A
 symbolic link is written through and stays a link; an existing target keeps
-its permission bits, not its owner or group, and other hard links to it keep
-the old content. A read-only target is refused before any API call.
+its permission bits (without setuid, setgid or sticky), not its owner or
+group, and other hard links to it keep the old content. A read-only target is
+refused before any API call, and so is a target that is not a regular file:
+
+```go
+// 0.11.0
+err := polipage.RenderToFile(ctx, client, in, "/dev/stdout")
+
+// 0.13.0
+body, err := client.Render.PDFStream(ctx, in)
+if err != nil {
+    return err
+}
+defer body.Close()
+_, err = io.Copy(os.Stdout, body)
+```
 
 ### A non-JSON 2xx is `invalid_response`
 
