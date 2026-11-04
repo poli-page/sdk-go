@@ -68,8 +68,11 @@ func WithRetryDelay(d time.Duration) RequestOption {
 	}
 }
 
-// WithTimeout sets the per-request fallback deadline. Only applies when
-// the caller's context has no deadline of its own. Default 60s.
+// WithTimeout sets the timeout of each API attempt. Default 60s. It applies
+// on top of the caller's context: when the context has its own deadline, the
+// first to end wins. Only this timeout gives the timeout error's message
+// "Request timed out after <ms>ms"; the caller's own deadline is a timeout
+// too, but is never retried.
 //
 // The same value bounds the presigned PDF download: the whole download for
 // Render.PDF and DownloadPDF, an idle timeout (the wait for the storage's
@@ -165,9 +168,8 @@ func WithIdempotencyKey(key string) RequestOption {
 // WithRequestTimeout overrides the per-request deadline for a single call.
 // Pass as the last argument to any method to override the client-wide
 // [WithTimeout] for that call only, the PDF download of Render.PDF and
-// Render.PDFStream included. For the API attempts, when the caller's context
-// already has a deadline, this override is ignored — context wins; the PDF
-// download applies it on top of that deadline, and the first to end wins.
+// Render.PDFStream included. It applies on top of the caller's context: when
+// the context has its own deadline, the first to end wins.
 //
 // Setting WithRequestTimeout at construction time also adjusts the client
 // default, identically to [WithTimeout].

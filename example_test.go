@@ -218,8 +218,7 @@ func ExampleError_typedInspection() {
 
 // ExampleNewClient_withTimeout shows the recommended cancellation /
 // deadline pattern: a per-call context.WithTimeout. The Client's own
-// WithTimeout is a fallback applied only when the caller's ctx has no
-// deadline.
+// WithTimeout bounds each attempt on top of it: the first to end wins.
 func ExampleNewClient_withTimeout() {
 	client := polipage.NewClient(option.WithAPIKey(os.Getenv("POLI_PAGE_API_KEY")))
 

@@ -69,6 +69,12 @@ to 0.13 (see [RELEASING.md](RELEASING.md#versions)). The module path stays
   the SDK's own timer gives this message: the caller's own deadline, or the
   `Timeout` of an `*http.Client` passed with `option.WithHTTPClient`, still
   gives `network error`.
+- Each API attempt's timeout (`option.WithTimeout`, `option.WithRequestTimeout`)
+  now applies on top of the caller's context deadline, and the first to end
+  wins. Before, a context with a deadline replaced the SDK's timeout, so a
+  long job deadline let one stalled attempt use all of it. The SDK's timeout
+  gives `Request timed out after <ms>ms` and is retried; the caller's own
+  deadline is still `timeout`, never retried.
 - `User-Agent` is `poli-page-sdk-go/0.13.0`.
 - CI runs the API contract v0.13.0.
 

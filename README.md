@@ -202,13 +202,13 @@ All options live in the [`option`](https://pkg.go.dev/github.com/poli-page/sdk-g
 | `option.WithBaseURL(url)`              | `string`                      | `https://api.poli.page` | API base URL |
 | `option.WithMaxRetries(n)`             | `int`                         | `2`                     | Retry budget on top of the initial attempt |
 | `option.WithRetryDelay(d)`             | `time.Duration`               | `500 * time.Millisecond`| Base exponential-backoff delay |
-| `option.WithTimeout(d)`                | `time.Duration`               | `60 * time.Second`      | Per-request fallback deadline (when ctx has none); also bounds the PDF download |
+| `option.WithTimeout(d)`                | `time.Duration`               | `60 * time.Second`      | Timeout of each attempt, on top of ctx's deadline (first to end wins); also bounds the PDF download |
 | `option.WithHTTPClient(c)`             | `*http.Client`                | new client               | Inject custom transport / TLS / middleware |
 | `option.WithLogger(l)`                 | `*slog.Logger`                | discard                  | One DEBUG/attempt, WARN/retry, ERROR/terminal |
 | `option.WithOnRetry(fn)`               | `func(polipage.RetryEvent)`   | nil                      | Fires before each retry sleep |
 | `option.WithOnError(fn)`               | `func(error)`                 | nil                      | Fires on terminal failure |
 | `option.WithIdempotencyKey(key)`       | `string`                      | UUID4                    | **Per-call** — override the auto-generated key |
-| `option.WithRequestTimeout(d)`         | `time.Duration`               | `WithTimeout` value      | **Per-call** — override per-request deadline (no-op if ctx has a deadline) |
+| `option.WithRequestTimeout(d)`         | `time.Duration`               | `WithTimeout` value      | **Per-call** — override the timeout for this call (still on top of ctx's deadline) |
 | `option.WithHeader(key, value)`        | `string, string`              | —                        | **Construction + per-call** — extra request header; per-call wins on duplicate keys |
 
 ## Error handling
