@@ -18,7 +18,9 @@ import (
 // tests use short real delays against a local server. Every delay that must
 // NOT trip a timeout is a small fraction of it, and every server wait that
 // must trip one lasts until the client goes away, so a slow runner can only
-// make them slower, not wrong.
+// make them slower, not wrong. A phaseTransport answers the render call out
+// of the short timeout's reach, so the timeout can only end the download, and
+// places a mid-body timeout after the body's first bytes.
 
 // hangPDF never answers: it waits until the client goes away.
 func hangPDF(w http.ResponseWriter, r *http.Request) {
@@ -76,7 +78,7 @@ func within(t *testing.T, start time.Time, limit time.Duration) {
 func TestRender_PDF_clientTimeoutBoundsTheDownload(t *testing.T) {
 	t.Parallel()
 	server := downloadServer(t, hangPDF)
-	client := newTestClient(t, server, option.WithTimeout(150*time.Millisecond))
+	client := newTestClient(t, server, phaseClient(server, &phaseTransport{}), option.WithTimeout(150*time.Millisecond))
 	start := time.Now()
 	_, err := client.Render.PDF(context.Background(), minimalInput())
 	wantDownloadTimeout(t, err)
@@ -86,7 +88,7 @@ func TestRender_PDF_clientTimeoutBoundsTheDownload(t *testing.T) {
 func TestRender_PDF_perCallTimeoutBoundsTheDownload(t *testing.T) {
 	t.Parallel()
 	server := downloadServer(t, hangPDF)
-	client := newTestClient(t, server)
+	client := newTestClient(t, server, phaseClient(server, &phaseTransport{}))
 	start := time.Now()
 	_, err := client.Render.PDF(context.Background(), minimalInput(), option.WithRequestTimeout(150*time.Millisecond))
 	wantDownloadTimeout(t, err)
@@ -99,13 +101,17 @@ func TestDownloadPDF_timeoutBoundsTheWholeDownload(t *testing.T) {
 	// 40 × 20 ms = 800 ms: the total is what DownloadPDF bounds.
 	pdf := bytes.Repeat([]byte("x"), 40)
 	server := downloadServer(t, tricklePDF(pdf, 1, 20*time.Millisecond))
-	client := newTestClient(t, server, option.WithTimeout(200*time.Millisecond))
+	storage := &phaseTransport{streamPath: "/s3/doc.pdf", prefetch: 1}
+	client := newTestClient(t, server, phaseClient(server, storage), option.WithTimeout(200*time.Millisecond))
 	doc, err := client.Render.Document(context.Background(), minimalInput())
 	if err != nil {
 		t.Fatalf("Document err = %v", err)
 	}
 	_, err = doc.DownloadPDF(context.Background())
 	wantDownloadTimeout(t, err)
+	if n := storage.read.Load(); n < 1 || n >= int64(len(pdf)) {
+		t.Errorf("the SDK read %d of %d PDF bytes, want some but not all: the timeout did not land mid-body", n, len(pdf))
+	}
 }
 
 func TestDownloadPDF_downloadTimeoutOverridesTheClientTimeout(t *testing.T) {
@@ -139,7 +145,7 @@ func TestDownloadPDF_downloadWithinTheTimeoutSucceeds(t *testing.T) {
 func TestRender_PDFStream_timeoutBeforeTheAnswer(t *testing.T) {
 	t.Parallel()
 	server := downloadServer(t, hangPDF)
-	client := newTestClient(t, server, option.WithTimeout(150*time.Millisecond))
+	client := newTestClient(t, server, phaseClient(server, &phaseTransport{}), option.WithTimeout(150*time.Millisecond))
 	start := time.Now()
 	stream, err := client.Render.PDFStream(context.Background(), minimalInput())
 	if err == nil {
@@ -153,7 +159,8 @@ func TestRender_PDFStream_idleTimeoutMidStream(t *testing.T) {
 	t.Parallel()
 	// 10 bytes, then nothing while the client is there.
 	server := downloadServer(t, partialPDF(false))
-	client := newTestClient(t, server, option.WithTimeout(200*time.Millisecond))
+	storage := &phaseTransport{streamPath: "/s3/doc.pdf", prefetch: 10}
+	client := newTestClient(t, server, phaseClient(server, storage), option.WithTimeout(200*time.Millisecond))
 	stream, err := client.Render.PDFStream(context.Background(), minimalInput())
 	if err != nil {
 		t.Fatalf("PDFStream err = %v", err)
@@ -167,6 +174,9 @@ func TestRender_PDFStream_idleTimeoutMidStream(t *testing.T) {
 	_, err = io.ReadAll(stream)
 	wantDownloadTimeout(t, err)
 	within(t, start, 4*time.Second)
+	if n := storage.read.Load(); n != 10 {
+		t.Errorf("the SDK read %d PDF bytes, want the 10 the storage sent: the timeout did not land mid-stream", n)
+	}
 }
 
 func TestRender_PDFStream_idleTimeoutIsNotATotal(t *testing.T) {
@@ -175,7 +185,7 @@ func TestRender_PDFStream_idleTimeoutIsNotATotal(t *testing.T) {
 	// takes 30 × 20 ms = 600 ms, three times the timeout.
 	pdf := bytes.Repeat([]byte("y"), 30)
 	server := downloadServer(t, tricklePDF(pdf, 1, 20*time.Millisecond))
-	client := newTestClient(t, server, option.WithTimeout(200*time.Millisecond))
+	client := newTestClient(t, server, phaseClient(server, &phaseTransport{}), option.WithTimeout(200*time.Millisecond))
 	stream, err := client.Render.PDFStream(context.Background(), minimalInput())
 	if err != nil {
 		t.Fatalf("PDFStream err = %v", err)
@@ -194,7 +204,7 @@ func TestRender_PDFStream_callerPaceDoesNotCount(t *testing.T) {
 	t.Parallel()
 	pdf := []byte("%PDF-1.4\nslow reader\n%%EOF")
 	server := downloadServer(t, tricklePDF(pdf, 8, 0))
-	client := newTestClient(t, server, option.WithTimeout(100*time.Millisecond))
+	client := newTestClient(t, server, phaseClient(server, &phaseTransport{}), option.WithTimeout(100*time.Millisecond))
 	stream, err := client.Render.PDFStream(context.Background(), minimalInput())
 	if err != nil {
 		t.Fatalf("PDFStream err = %v", err)
@@ -245,8 +255,9 @@ func TestDownload_httpClientTimeoutIsNotLabelledTimeout(t *testing.T) {
 	t.Parallel()
 	server := downloadServer(t, hangPDF)
 	// The caller's own *http.Client gives up first; the SDK timeout is far.
-	httpClient := server.Client()
-	httpClient.Timeout = 150 * time.Millisecond
+	// The render call is answered out of that 150 ms reach: only the download can hit it.
+	routes := &phaseTransport{base: server.Client().Transport}
+	httpClient := &http.Client{Transport: routes, Timeout: 150 * time.Millisecond}
 	client := newTestClient(t, server, option.WithHTTPClient(httpClient), option.WithTimeout(time.Minute))
 	doc, err := client.Render.Document(context.Background(), minimalInput())
 	if err != nil {
@@ -264,15 +275,17 @@ func TestDownload_httpClientTimeoutIsNotLabelledTimeout(t *testing.T) {
 
 func TestRender_PDFStream_cancelBeforeTheAnswerIsAbortedNotTimeout(t *testing.T) {
 	t.Parallel()
-	server := downloadServer(t, hangPDF)
-	client := newTestClient(t, server, option.WithTimeout(time.Minute))
 	ctx, cancel := context.WithCancel(context.Background())
-	time.AfterFunc(100*time.Millisecond, cancel)
+	defer cancel()
+	storage := cancelOnArrival(cancel)
+	server := downloadServer(t, storage.handler)
+	client := newTestClient(t, server, option.WithTimeout(time.Minute))
 	stream, err := client.Render.PDFStream(ctx, minimalInput())
 	if err == nil {
 		_ = stream.Close()
 	}
 	wantAborted(t, err)
+	storage.wantOneCall(t)
 }
 
 // The SDK timeout and the caller's ctx compose: the first bound to end wins.
@@ -295,30 +308,31 @@ func TestDownload_sdkTimeoutWinsOverALaterCallerDeadline(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			server := downloadServer(t, hangPDF)
-			client := newTestClient(t, server, option.WithTimeout(150*time.Millisecond))
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			client := newTestClient(t, server, phaseClient(server, &phaseTransport{}), option.WithTimeout(150*time.Millisecond))
+			// The caller's deadline is far later than the SDK timeout.
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
-			start := time.Now()
 			err := call(ctx, client)
 			wantDownloadTimeout(t, err)
-			// Ended by the 150 ms SDK timeout, well before the 3 s deadline.
-			within(t, start, 2*time.Second)
+			if ctx.Err() != nil {
+				t.Errorf("ctx.Err() = %v: the caller's deadline ended first, so the call did not prove the SDK timeout wins", ctx.Err())
+			}
 		})
 	}
 }
 
 func TestDownload_callerCancelWithADeadlineIsAborted(t *testing.T) {
 	t.Parallel()
-	server := downloadServer(t, hangPDF)
-	client := newTestClient(t, server, option.WithTimeout(time.Minute))
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	// The deadline is far: only the cancel, placed while the download waits, can end the call.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	time.AfterFunc(100*time.Millisecond, cancel)
-	start := time.Now()
+	storage := cancelOnArrival(cancel)
+	server := downloadServer(t, storage.handler)
+	client := newTestClient(t, server, option.WithTimeout(time.Minute))
 	stream, err := client.Render.PDFStream(ctx, minimalInput())
 	if err == nil {
 		_ = stream.Close()
 	}
 	wantAborted(t, err)
-	within(t, start, 2*time.Second)
+	storage.wantOneCall(t)
 }
