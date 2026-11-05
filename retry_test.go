@@ -407,13 +407,17 @@ func TestRetry_cancelWhileReadingAnswerBodyIsAborted(t *testing.T) {
 	var calls atomic.Int32
 	var attempts, retries, responses atomic.Int32
 	server := partialAnswer(t, 1, false, &calls)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// Cancel as soon as the answer's headers are back, so the cancel always lands while the
+	// body is read (the server never sends the rest), however slowly the request got there.
+	httpClient := &http.Client{Transport: cancelAfterHeaders{base: server.Client().Transport, cancel: cancel}}
 	client := newTestClient(t, server,
+		option.WithHTTPClient(httpClient),
 		option.WithOnRequest(func(polipage.RequestEvent) { attempts.Add(1) }),
 		option.WithOnRetry(func(polipage.RetryEvent) { retries.Add(1) }),
 		option.WithOnResponse(func(polipage.ResponseEvent) { responses.Add(1) }),
 	)
-	ctx, cancel := context.WithCancel(context.Background())
-	time.AfterFunc(100*time.Millisecond, cancel)
 	_, err := client.Documents.Get(ctx, "doc_1")
 	var pErr *polipage.Error
 	if !errors.As(err, &pErr) || pErr.Code != polipage.ErrCodeAborted || pErr.Message != "Request was aborted" {
