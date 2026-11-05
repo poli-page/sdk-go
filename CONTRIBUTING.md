@@ -59,13 +59,15 @@ How SDK versions follow the Poli Page API's is in
 [RELEASING.md](RELEASING.md#versions): the SDK shares the API's major.minor,
 and a release must pass the API contract of that major.minor.
 
-Releases are **manual**. There is no CI workflow that auto-publishes — by
-design. The Go module system is its own registry: pushing a `vX.Y.Z` tag
-to the repo is the entire release. `proxy.golang.org` picks it up within
-minutes; `sum.golang.org` records the checksum for transparency. The
-Release workflow (`.github/workflows/release.yml`) then checks the pushed
-tag against `internal/version.Version`, `CHANGELOG.md` and the pinned API
-contract; it cannot hold the tag back, so run `scripts/release.sh` first.
+Releases are **manual**: nothing publishes until you push a tag. The Go
+module system is its own registry: pushing a `vX.Y.Z` tag to the repo
+publishes the module. `proxy.golang.org` picks it up within minutes;
+`sum.golang.org` records the checksum for transparency. The Release workflow
+(`.github/workflows/release.yml`) then checks the pushed tag against
+`internal/version.Version`, `CHANGELOG.md` and the pinned API contract; it
+cannot hold the tag back, so run `scripts/release.sh` first. When those checks
+pass, the workflow creates the GitHub Release for the tag, with the
+`CHANGELOG.md` section as its notes (`-` tags are marked prerelease).
 
 1. Bump the `Version` constant in `internal/version/version.go`.
 2. Move `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD` in `CHANGELOG.md`.
@@ -83,8 +85,7 @@ contract; it cannot hold the tag back, so run `scripts/release.sh` first.
    ```
 6. Tag locally: `git tag vX.Y.Z`.
 7. Push the tag when you're ready: `git push origin vX.Y.Z`.
-8. Optionally create a GitHub Release page from the tag for the changelog
-   excerpt — `gh release create vX.Y.Z --notes-from-tag`. There are no
+8. Watch the Release workflow: it creates the GitHub Release. There are no
    binary artifacts to attach — the module is the artifact.
 
 ### Stable vs. prerelease channels
