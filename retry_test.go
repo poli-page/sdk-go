@@ -366,8 +366,12 @@ func TestRetry_answerBodyTimeoutMidReadIsTimeout(t *testing.T) {
 	t.Parallel()
 	var calls atomic.Int32
 	server := partialAnswer(t, 1, false, &calls)
-	client := newTestClient(t, server, option.WithMaxRetries(0), option.WithTimeout(150*time.Millisecond))
+	answer := &phaseTransport{streamPath: "/v1/documents/doc_1", prefetch: 10}
+	client := newTestClient(t, server, phaseClient(server, answer), option.WithMaxRetries(0), option.WithTimeout(150*time.Millisecond))
 	_, err := client.Documents.Get(context.Background(), "doc_1")
+	if n := answer.read.Load(); n != 10 {
+		t.Errorf("the SDK read %d body bytes, want the 10 the server sent: the timeout did not land mid-read", n)
+	}
 	var pErr *polipage.Error
 	if !errors.As(err, &pErr) {
 		t.Fatalf("err = %v (%T), want *Error", err, err)
@@ -407,13 +411,17 @@ func TestRetry_cancelWhileReadingAnswerBodyIsAborted(t *testing.T) {
 	var calls atomic.Int32
 	var attempts, retries, responses atomic.Int32
 	server := partialAnswer(t, 1, false, &calls)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// Cancel once the SDK has read the body's first 10 bytes, so the cancel always lands
+	// mid-body (the server never sends the rest), however slowly the request got there.
+	answer := &phaseTransport{streamPath: "/v1/documents/doc_1", prefetch: 10, onRest: cancel}
 	client := newTestClient(t, server,
+		phaseClient(server, answer),
 		option.WithOnRequest(func(polipage.RequestEvent) { attempts.Add(1) }),
 		option.WithOnRetry(func(polipage.RetryEvent) { retries.Add(1) }),
 		option.WithOnResponse(func(polipage.ResponseEvent) { responses.Add(1) }),
 	)
-	ctx, cancel := context.WithCancel(context.Background())
-	time.AfterFunc(100*time.Millisecond, cancel)
 	_, err := client.Documents.Get(ctx, "doc_1")
 	var pErr *polipage.Error
 	if !errors.As(err, &pErr) || pErr.Code != polipage.ErrCodeAborted || pErr.Message != "Request was aborted" {
@@ -425,45 +433,64 @@ func TestRetry_cancelWhileReadingAnswerBodyIsAborted(t *testing.T) {
 	if a, r, o, c := attempts.Load(), retries.Load(), responses.Load(), calls.Load(); a != 1 || r != 0 || o != 0 || c != 1 {
 		t.Errorf("attempts=%d retries=%d responses=%d server calls=%d, want 1, 0, 0, 1", a, r, o, c)
 	}
+	if n := answer.read.Load(); n != 10 {
+		t.Errorf("the SDK read %d body bytes, want the 10 the server sent: the cancel did not land mid-body", n)
+	}
 }
 
 // The attempt timeout and the caller's ctx compose: the first bound to end
 // wins, and only the SDK's own timer gives "Request timed out after <ms>ms".
+//
+// The attempts are counted with OnRequest, not by the server: a request still
+// on its way when its attempt times out may never reach the handler, so a
+// server-side count would depend on how fast the runner schedules the server.
 func TestTimeout_attemptTimeoutWinsOverALaterCallerDeadline(t *testing.T) {
 	t.Parallel()
-	var calls atomic.Int32
 	hang := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls.Add(1)
 		<-r.Context().Done()
 	}))
 	t.Cleanup(hang.Close)
-	client := newTestClient(t, hang, option.WithTimeout(150*time.Millisecond), option.WithMaxRetries(1))
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	var attempts atomic.Int32
+	var mu sync.Mutex
+	var reasons []error
+	client := newTestClient(t, hang, option.WithTimeout(150*time.Millisecond), option.WithMaxRetries(1),
+		option.WithOnRequest(func(polipage.RequestEvent) { attempts.Add(1) }),
+		option.WithOnRetry(func(e polipage.RetryEvent) {
+			mu.Lock()
+			defer mu.Unlock()
+			reasons = append(reasons, e.Reason)
+		}),
+	)
+	// The caller's deadline is far later than both attempt timeouts together.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	start := time.Now()
 	_, err := client.Documents.Get(ctx, "doc_1")
-	elapsed := time.Since(start)
 	var pErr *polipage.Error
 	if !errors.As(err, &pErr) || pErr.Code != polipage.ErrCodeTimeout || pErr.Message != "Request timed out after 150ms" {
 		t.Fatalf("err = %v, want timeout \"Request timed out after 150ms\"", err)
 	}
-	if !pErr.IsRetryable() || calls.Load() != 2 {
-		t.Errorf("IsRetryable() = %v, attempts = %d; want true and 2 (the SDK timeout is retried)", pErr.IsRetryable(), calls.Load())
+	if ctx.Err() != nil {
+		t.Errorf("ctx.Err() = %v: the caller's deadline ended before the call, so it did not prove the attempt timeout wins", ctx.Err())
 	}
-	if elapsed > 2*time.Second {
-		t.Errorf("the call took %v, want it ended by the 150 ms attempt timeouts, well before the 3 s deadline", elapsed)
+	if !pErr.IsRetryable() || attempts.Load() != 2 {
+		t.Errorf("IsRetryable() = %v, attempts = %d; want true and 2 (the SDK timeout is retried)", pErr.IsRetryable(), attempts.Load())
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	var reason *polipage.Error
+	if len(reasons) != 1 || !errors.As(reasons[0], &reason) || reason.Code != polipage.ErrCodeTimeout || reason.Message != "Request timed out after 150ms" {
+		t.Errorf("retry reasons = %v, want one: the first attempt's timeout \"Request timed out after 150ms\"", reasons)
 	}
 }
 
 func TestTimeout_earlierCallerDeadlineIsNotTheSDKTimeout(t *testing.T) {
 	t.Parallel()
-	var calls atomic.Int32
 	hang := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls.Add(1)
 		<-r.Context().Done()
 	}))
 	t.Cleanup(hang.Close)
-	client := newTestClient(t, hang, option.WithTimeout(time.Minute), option.WithMaxRetries(2))
+	var hooks hookCounts
+	client := newTestClient(t, hang, append(hooks.options(), option.WithTimeout(time.Minute), option.WithMaxRetries(2))...)
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
 	_, err := client.Documents.Get(ctx, "doc_1")
@@ -474,8 +501,9 @@ func TestTimeout_earlierCallerDeadlineIsNotTheSDKTimeout(t *testing.T) {
 	if pErr.Message != "request deadline exceeded" {
 		t.Errorf("Message = %q, want the caller's deadline, not the SDK's timeout message", pErr.Message)
 	}
-	if calls.Load() != 1 {
-		t.Errorf("attempts = %d, want 1: the caller's deadline is not retried", calls.Load())
+	// Counted with OnRequest and OnRetry, not by the server, for the reason above.
+	if a, r := hooks.attempts.Load(), hooks.retries.Load(); a != 1 || r != 0 {
+		t.Errorf("attempts=%d retries=%d, want 1, 0: the caller's deadline is not retried", a, r)
 	}
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("errors.Is(err, context.DeadlineExceeded) = false for %v", err)
@@ -484,18 +512,25 @@ func TestTimeout_earlierCallerDeadlineIsNotTheSDKTimeout(t *testing.T) {
 
 func TestTimeout_callerCancelWithADeadlineIsAborted(t *testing.T) {
 	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	// The server cancels the caller's ctx once the request is in, so the cancel always
+	// lands during the attempt, while the deadline is still far.
+	var calls atomic.Int32
 	hang := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		cancel()
 		<-r.Context().Done()
 	}))
 	t.Cleanup(hang.Close)
 	client := newTestClient(t, hang, option.WithTimeout(time.Minute))
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	time.AfterFunc(100*time.Millisecond, cancel)
 	_, err := client.Documents.Get(ctx, "doc_1")
 	var pErr *polipage.Error
 	if !errors.As(err, &pErr) || pErr.Code != polipage.ErrCodeAborted {
 		t.Fatalf("err = %v, want Code=aborted", err)
+	}
+	if n := calls.Load(); n != 1 {
+		t.Errorf("server calls = %d, want 1", n)
 	}
 }
 

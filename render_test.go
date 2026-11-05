@@ -328,21 +328,19 @@ func TestRender_Document_customIdempotencyKeyOverridesAuto(t *testing.T) {
 
 func TestRender_Document_ctxCancelMapsToAborted(t *testing.T) {
 	t.Parallel()
-	// Slow server so the cancel races the response.
+	// The server cancels the caller's ctx once the whole request is in and never answers, so
+	// the cancel always lands while the call waits for the answer. It reads the body first:
+	// net/http notices the client going away only once the body is read.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		select {
-		case <-time.After(2 * time.Second):
-		case <-r.Context().Done():
-		}
+		_, _ = io.Copy(io.Discard, r.Body)
+		cancel()
+		<-r.Context().Done()
 	}))
 	defer server.Close()
 
 	client := newTestClient(t, server)
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		time.Sleep(20 * time.Millisecond)
-		cancel()
-	}()
 	_, err := client.Render.Document(ctx, minimalInput())
 	if !errors.Is(err, polipage.ErrAborted) {
 		t.Fatalf("err = %v, want errors.Is(..., ErrAborted)", err)

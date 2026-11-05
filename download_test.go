@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -53,6 +54,30 @@ func partialPDF(drop bool) http.HandlerFunc {
 	}
 }
 
+// arrivalCanceller is a storage that cancels the caller's ctx once the download request is
+// in, then never answers: the cancel always lands while the download waits for the storage.
+type arrivalCanceller struct {
+	cancel context.CancelFunc
+	calls  atomic.Int32
+}
+
+func cancelOnArrival(cancel context.CancelFunc) *arrivalCanceller {
+	return &arrivalCanceller{cancel: cancel}
+}
+
+func (a *arrivalCanceller) handler(w http.ResponseWriter, r *http.Request) {
+	a.calls.Add(1)
+	a.cancel()
+	<-r.Context().Done()
+}
+
+func (a *arrivalCanceller) wantOneCall(t *testing.T) {
+	t.Helper()
+	if n := a.calls.Load(); n != 1 {
+		t.Errorf("storage calls = %d, want 1: the cancel did not land while the download waited", n)
+	}
+}
+
 func wantAborted(t *testing.T, err error) {
 	t.Helper()
 	var pErr *polipage.Error
@@ -87,15 +112,20 @@ func wantDownloadNetworkError(t *testing.T, err error) {
 func TestDownloadPDF_cancelWhileReadingBodyIsAborted(t *testing.T) {
 	t.Parallel()
 	server := downloadServer(t, partialPDF(false))
-	client := newTestClient(t, server)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// Cancel once the SDK has read the PDF's first 10 bytes: the cancel always lands mid-body.
+	storage := &phaseTransport{streamPath: "/s3/doc.pdf", prefetch: 10, onRest: cancel}
+	client := newTestClient(t, server, phaseClient(server, storage))
 	doc, err := client.Render.Document(context.Background(), minimalInput())
 	if err != nil {
 		t.Fatalf("Document err = %v", err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	time.AfterFunc(100*time.Millisecond, cancel)
 	_, err = doc.DownloadPDF(ctx)
 	wantAborted(t, err)
+	if n := storage.read.Load(); n != 10 {
+		t.Errorf("the SDK read %d PDF bytes, want the 10 the storage sent: the cancel did not land mid-body", n)
+	}
 }
 
 func TestDownloadPDF_connectionDroppedMidBodyIsDownloadFailed(t *testing.T) {
@@ -115,14 +145,14 @@ func TestDownloadPDF_connectionDroppedMidBodyIsDownloadFailed(t *testing.T) {
 
 func TestRender_PDF_cancelBeforeStorageAnswersIsAborted(t *testing.T) {
 	t.Parallel()
-	server := downloadServer(t, func(w http.ResponseWriter, r *http.Request) {
-		<-r.Context().Done()
-	})
-	client := newTestClient(t, server)
 	ctx, cancel := context.WithCancel(context.Background())
-	time.AfterFunc(100*time.Millisecond, cancel)
+	defer cancel()
+	storage := cancelOnArrival(cancel)
+	server := downloadServer(t, storage.handler)
+	client := newTestClient(t, server)
 	_, err := client.Render.PDF(ctx, minimalInput())
 	wantAborted(t, err)
+	storage.wantOneCall(t)
 }
 
 func TestRender_PDFStream_cancelWhileReadingIsAborted(t *testing.T) {
