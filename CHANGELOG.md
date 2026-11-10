@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- CI runs the API contract v0.15.0-dev.1 (format 2): the harness fails a
+  call that returns sooner than the case's `expect.minCallMs`.
+
 ## [0.13.0] - 2026-11-02
 
 Conformance with the Poli Page API contract v0.13.0
