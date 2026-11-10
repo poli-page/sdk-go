@@ -43,7 +43,7 @@ import (
 
 // contractFormatVersion is the contract.json layout this file reads (README of
 // poli-page/api-contract).
-const contractFormatVersion = 1
+const contractFormatVersion = 2
 
 // contractSDKName is this SDK's name in policy.cancellationSdks.
 const contractSDKName = "go"
@@ -127,6 +127,8 @@ type sdkCase struct {
 		Requests []map[string]any `json:"requests"`
 		Events   []map[string]any `json:"events"`
 		Result   any              `json:"result"`
+		// MinCallMs is a lower bound on the call's duration (formatVersion 2).
+		MinCallMs *int `json:"minCallMs"`
 	} `json:"expect"`
 	StopAfterRetryEvents *int `json:"stopAfterRetryEvents"`
 }
@@ -795,8 +797,14 @@ func runCase(c *sdkCase) []string {
 		callErr, setupErr error
 	}
 	finished := make(chan outcome, 1)
+	// The clock starts once the mock listens and the client is built, right before the call,
+	// and stops when the call has returned or failed (for pdfStream, once the stream is read).
+	// time.Now carries a monotonic reading, which Sub uses.
+	started := time.Now()
+	var elapsed time.Duration
 	go func() {
 		value, callErr, setupErr := invoke(ctx, client, c.Call.Method, c.Call.Args)
+		elapsed = time.Since(started)
 		finished <- outcome{value, callErr, setupErr}
 	}()
 	var got outcome
@@ -813,6 +821,13 @@ func runCase(c *sdkCase) []string {
 	}
 
 	problems := server.serverProblems()
+	if c.Expect.MinCallMs != nil {
+		// N-DURATION-MS: the duration is compared in integer milliseconds.
+		ms := int(math.Round(float64(elapsed) / float64(time.Millisecond)))
+		if ms < *c.Expect.MinCallMs {
+			problems = append(problems, fmt.Sprintf("minCallMs: want at least %d ms, only %d ms", *c.Expect.MinCallMs, ms))
+		}
+	}
 	wantEvents, wantRequests, checkResult, err := expectedPrefix(c)
 	if err != nil {
 		return append(problems, err.Error())
