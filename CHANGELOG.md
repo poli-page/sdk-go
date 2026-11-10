@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Docs: the README, the errors page and the error lists of `Render.PDF`,
+  `Render.PDFStream`, `Render.Document` and `RenderToFile` name
+  `TEMPLATE_UNSAFE` (400): the template, a partial or an SVG asset holds
+  script or another injection attempt. Not retried: fix the template.
+
 ### Changed
 
 - CI runs the API contract v0.15.0-dev.1 (format 2): the harness fails a
