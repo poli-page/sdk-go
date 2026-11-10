@@ -44,6 +44,7 @@ Returned by the Poli Page API. Uppercase, snake-case. The SDK forwards the code 
   { code: 'PROJECT_NOT_FOUND', when: 'No project matches the slug.', recovery: 'Check the slug. If getting-started was renamed or deleted, use a fresh organization.' },
   { code: 'PROJECT_NOT_IN_ENVIRONMENT', when: 'The project is not published in the key\'s environment.', recovery: 'Publish the project to that environment, or use a key of the environment it is published in.' },
   { code: 'TEMPLATE_NOT_FOUND', when: 'The published project has no template with that slug.', recovery: 'Check the template slug.' },
+  { code: 'TEMPLATE_UNSAFE', when: 'The template, a partial or an SVG asset holds script, an event handler or another injection attempt (400). The render is refused before anything is rendered; `Message` names the first construct found.', recovery: 'Not retried: fix the template.' },
   { code: 'DOCUMENT_NOT_FOUND', when: 'No stored document matches the documentId.', recovery: 'Check the id.' },
   { code: 'DOCUMENT_GONE', when: 'The document was deleted or has expired (sandbox documents expire after 30 days).', recovery: 'Render it again.' },
   { code: 'VALIDATION_ERROR', when: 'The request failed validation.', recovery: 'Read Message for the failing field.' },

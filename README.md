@@ -259,6 +259,8 @@ if errors.As(err, &pErr) {
 }
 ```
 
+A render whose template, partial or SVG asset holds script, an event handler or another injection attempt is refused with `400 TEMPLATE_UNSAFE` (`ErrCodeTemplateUnsafe`) before anything is rendered; `pErr.Message` names the first construct found. It is never retried: fix the template.
+
 Unknown codes from a newer API pass through verbatim in `pErr.Code`.
 
 A `2xx` answer whose body is not JSON (a proxy or captive portal page between your server and the API) returns `Code == ErrCodeInvalidResponse` (`invalid_response`) with the message `Invalid response: HTTP <status> body is not JSON`, the real `2xx` as `StatusCode` and the answer's `x-request-id` as `RequestID`. It is never retried. `pErr.ToPayload()`, the `{code, message, status, requestId}` body for framework integrations, answers `502` for it (and `503` for `network_error`, `504` for `timeout`), while `StatusCode` keeps the real status.
