@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-16
+
+Conformance with the Poli Page API contract v0.15.0
+([poli-page/api-contract](https://github.com/poli-page/api-contract)). The
+SDK shares its major.minor with the Poli Page API, so it moves from 0.13 to
+0.15 (see [RELEASING.md](RELEASING.md#versions)). No API change: upgrading
+needs no code change.
+
 ### Added
 
 - Docs: the README, the errors page and the error lists of `Render.PDF`,
@@ -16,8 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- CI runs the API contract v0.15.0-dev.1 (format 2): the harness fails a
-  call that returns sooner than the case's `expect.minCallMs`.
+- CI runs the API contract v0.15.0 (format 2): the harness fails a call that
+  returns sooner than the case's `expect.minCallMs`, which the `timeout.hang`
+  and `download.timeout` cases now use instead of a per-request
+  `minGapMsBefore`. The contract adds the retry rule R-WAIT-FULL: no wait (a
+  timeout or a retry delay) ends early. Go's timers and context deadlines
+  never fire early, so the SDK already met it unchanged.
+- `internal/version.Version`, sent in the `User-Agent`, is `0.15.0`.
 
 ## [0.13.0] - 2026-11-02
 
